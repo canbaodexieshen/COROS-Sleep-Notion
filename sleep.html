@@ -138,7 +138,7 @@
             background-color: #383838;
         }
 
-        /* 智能反色滤镜：保留颜色感知，让深色模式下背景正常显示 */
+        /* 智能反色滤镜 */
         body.dark-mode svg {
             filter: invert(0.9) hue-rotate(180deg) brightness(1.1);
         }
@@ -152,10 +152,13 @@
             </select>
             <button id="theme-toggle" title="切换深色/浅色模式">🌙</button>
             <div class="legend">
-                <div class="legend-item"><div class="legend-box" style="background:#E8EAED;border:1px solid #ccc;"></div><span>无数据</span></div>
                 <div class="legend-item"><div class="legend-box" style="background:#fa2f47;"></div><span>&lt;60分</span></div>
                 <div class="legend-item"><div class="legend-box" style="background:#ffdd00;"></div><span>60-85分</span></div>
                 <div class="legend-item"><div class="legend-box" style="background:#1ed760;"></div><span>&gt;85分</span></div>
+                <div class="legend-item">
+                    <div class="legend-box" style="background:transparent;border:2px solid #90b1fb;"></div>
+                    <span>含午睡</span>
+                </div>
             </div>
         </div>
     </header>
@@ -229,7 +232,7 @@
         const urlParams = new URLSearchParams(window.location.search);
         const isNotionDark = urlParams.get('theme') === 'dark';
 
-        applyTheme(systemPrefersDark.matches || isNotionDark); // 初始化
+        applyTheme(systemPrefersDark.matches || isNotionDark);
 
         // 2. 监听系统设置变化
         systemPrefersDark.addEventListener('change', e => {

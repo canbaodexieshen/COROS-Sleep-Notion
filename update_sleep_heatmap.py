@@ -1,11 +1,13 @@
 """
-Sleep Score Heatmap Generator
+Sleep Score Heatmap Generator v2
 从 Notion 获取睡眠评分数据，生成 GitHub 风格热力图 SVG
 
+v2 新增：
+- SVG 标题"睡眠评分热力图"（与 calorie 项目 --me 参数一致）
+- 午睡检测：午睡字段不为 0 的日期，方块显示浅蓝色边框
+- tooltip 增加"含午睡"标记
+
 参照 calorie-notion-heatmap 项目设计
-- 使用 requests 库调用 Notion API（兼容 GitHub Actions 代理环境）
-- 自定义 SVG 生成（不依赖外部 CLI 工具）
-- 支持 GitHub Pages 托管 + Notion 嵌入
 """
 
 import os
@@ -14,7 +16,7 @@ import requests
 from datetime import datetime, date
 from typing import Optional
 
-# 配置（延迟读取环境变量，避免 import 时为空）
+# 配置
 NOTION_API_VERSION = "2022-06-28"
 NOTION_BASE_URL = "https://api.notion.com/v1"
 
@@ -34,30 +36,17 @@ COLORS = {
     "empty": "#E8EAED",        # 无数据：灰色
 }
 
+# 午睡边框颜色
+NAP_BORDER_COLOR = "#90b1fb"
+NAP_STROKE_WIDTH = "1.5"
+
 
 def log(msg: str):
-    """带 flush 的输出，确保 GitHub Actions 实时显示日志"""
     print(msg, flush=True)
 
 
 def notion_request(method: str, endpoint: str, data: dict = None, token: str = None, db_id: str = None) -> dict:
-    """
-    发送 Notion API 请求
-
-    使用 requests 库而非 urllib，避免 GitHub Actions 代理环境下的连接挂死问题。
-
-    Args:
-        method: HTTP 方法（GET/POST/PATCH）
-        endpoint: API 端点（如 /databases/{id}/query）
-        data: 请求数据（POST/PATCH 时使用）
-        token: Notion API Token
-        db_id: Notion Database ID
-
-    Returns:
-        API 响应 dict
-    """
     url = f"{NOTION_BASE_URL}{endpoint}"
-
     headers = {
         "Authorization": f"Bearer {token}",
         "Notion-Version": NOTION_API_VERSION,
@@ -88,23 +77,26 @@ def notion_request(method: str, endpoint: str, data: dict = None, token: str = N
         raise
 
 
+def _extract_number(prop: dict) -> Optional[int]:
+    """从 Notion 属性中提取数值（支持 number 和 formula 两种类型）"""
+    if prop.get("number") is not None:
+        return prop["number"]
+    if prop.get("formula", {}).get("number") is not None:
+        return prop["formula"]["number"]
+    return None
+
+
 def get_notion_data(year: int, token: str, db_id: str) -> dict:
     """
     从 Notion 获取指定年份的睡眠评分数据
 
-    Args:
-        year: 目标年份
-        token: Notion API Token
-        db_id: Notion Database ID
-
     Returns:
-        dict: {日期字符串: {"score": 评分, "duration": 时长分钟}}
+        dict: {日期字符串: {"score": 评分, "duration": 时长分钟, "nap": 午睡分钟}}
     """
     log(f"[STEP 1] 从 Notion 获取 {year} 年睡眠数据...")
 
     data = {}
 
-    # 构建日期范围过滤（只查询目标年份，避免拉全量数据）
     start_date = f"{year}-01-01"
     end_date = f"{year}-12-31"
 
@@ -118,7 +110,6 @@ def get_notion_data(year: int, token: str, db_id: str) -> dict:
         "page_size": 100,
     }
 
-    # 分页查询
     has_more = True
     start_cursor = None
     page_count = 0
@@ -149,28 +140,25 @@ def get_notion_data(year: int, token: str, db_id: str) -> dict:
                     continue
                 date_str = date_prop["date"]["start"][:10]
 
-                # 提取睡眠评分（支持 number 和 formula 两种类型）
-                score = None
-                score_prop = page["properties"].get("睡眠评分", {})
-                if score_prop.get("number") is not None:
-                    score = score_prop["number"]
-                elif score_prop.get("formula", {}).get("number") is not None:
-                    score = score_prop["formula"]["number"]
+                # 提取睡眠评分
+                score = _extract_number(page["properties"].get("睡眠评分", {}))
 
-                # 提取总睡眠时长（支持 number 和 formula 两种类型）
-                duration = None
-                duration_prop = page["properties"].get("总睡眠", {})
-                if duration_prop.get("number") is not None:
-                    duration = duration_prop["number"]
-                elif duration_prop.get("formula", {}).get("number") is not None:
-                    duration = duration_prop["formula"]["number"]
+                # 提取总睡眠时长
+                duration = _extract_number(page["properties"].get("总睡眠", {}))
+
+                # 提取午睡时长
+                nap = _extract_number(page["properties"].get("午睡", {}))
 
                 # 同一天多条记录时，取评分较高的
                 if date_str not in data or (
                     score is not None
                     and (data[date_str]["score"] is None or score > data[date_str]["score"])
                 ):
-                    data[date_str] = {"score": score, "duration": duration}
+                    data[date_str] = {
+                        "score": score,
+                        "duration": duration,
+                        "nap": nap,
+                    }
 
             except Exception as e:
                 log(f"   [WARN] 解析记录失败: {e}")
@@ -184,7 +172,6 @@ def get_notion_data(year: int, token: str, db_id: str) -> dict:
 
 
 def get_score_category(score: Optional[int]) -> str:
-    """根据睡眠评分返回颜色类别"""
     if score is None:
         return "empty"
     elif score > 85:
@@ -196,7 +183,6 @@ def get_score_category(score: Optional[int]) -> str:
 
 
 def format_duration(minutes: Optional[int]) -> str:
-    """将分钟数格式化为 Xh Ymin 格式"""
     if minutes is None or minutes <= 0:
         return "N/A"
     hours = minutes // 60
@@ -213,42 +199,45 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     """
     生成 GitHub 贡献图风格的睡眠热力图 SVG
 
-    布局：53周 x 7天，与 GitHub 热力图一致
-    每个方块带 <title> tooltip（日期 + 评分 + 时长）
-    支持 data-* 属性供 sleep.html 前端交互使用
+    布局：标题 + 副标题统计 + 53周 x 7天方块
+    午睡不为 0 的日期显示浅蓝色边框
     """
     log(f"[STEP 2] 生成 {year} 年热力图 SVG...")
 
     # 统计信息
-    stats = {"excellent": 0, "good": 0, "poor": 0, "empty": 0}
+    stats = {"excellent": 0, "good": 0, "poor": 0, "empty": 0, "nap": 0}
     for d in data.values():
         cat = get_score_category(d.get("score"))
         stats[cat] += 1
+        if d.get("nap") and d["nap"] > 0:
+            stats["nap"] += 1
 
-    log(f"   [STATS] {stats['excellent']}天优秀 · {stats['good']}天良好 · {stats['poor']}天较差")
+    log(f"   [STATS] {stats['excellent']}天优秀 · {stats['good']}天良好 · {stats['poor']}天较差 · {stats['nap']}天含午睡")
 
     # 日期范围
     start_date = date(year, 1, 1)
     end_date = date(year, 12, 31)
 
-    # SVG 布局参数（与 GitHub 贡献图一致）
+    # SVG 布局参数
     cell_size = 13
     cell_gap = 3
     left_margin = 40
-    top_margin = 30
+    title_height = 20       # 标题区域
+    subtitle_height = 20    # 副标题（统计摘要）
+    top_margin = title_height + subtitle_height + 5
     month_label_height = 20
     total_weeks = 53
 
     total_width = left_margin + total_weeks * (cell_size + cell_gap) + 20
     total_height = top_margin + month_label_height + 7 * (cell_size + cell_gap) + 20
 
-    # SVG 头部
     lines = []
     lines.append('<?xml version="1.0" encoding="UTF-8"?>')
     lines.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'width="{total_width}" height="{total_height}" '
-        f'viewBox="0 0 {total_width} {total_height}">'
+        f'viewBox="0 0 {total_width} {total_height}" '
+        f'style="background-color:white;">'
     )
     lines.append("  <style>")
     lines.append(
@@ -256,10 +245,17 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     )
     lines.append("  </style>")
 
-    # 标题行：年份 + 统计摘要
+    # ===== 标题：睡眠评分热力图（与 calorie 项目 --me 参数效果一致）=====
     lines.append("")
     lines.append(
-        f'  <text x="{left_margin}" y="15" font-size="12" fill="#656d76" font-weight="bold">'
+        f'  <text x="{left_margin}" y="16" font-size="15" fill="#24292f" font-weight="bold">'
+        f"睡眠评分热力图</text>"
+    )
+
+    # 副标题：年份 + 各评分段统计
+    lines.append("")
+    lines.append(
+        f'  <text x="{left_margin}" y="{16 + subtitle_height}" font-size="12" fill="#656d76">'
         f"{year}: {stats['excellent']}天优秀 · {stats['good']}天良好 · {stats['poor']}天较差"
         f"</text>"
     )
@@ -278,10 +274,9 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
                 f"{months[cur.month - 1]}</text>"
             )
             last_month = cur.month
-        # 跳到下一周
         days_to_next = 7 - cur.weekday()
         if days_to_next == 7:
-            days_to_next = 7  # Sunday -> jump 7 days
+            days_to_next = 7
         cur = date.fromordinal(cur.toordinal() + days_to_next)
 
     # 星期标签（Mon, Wed, Fri）
@@ -295,29 +290,39 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     lines.append("  <!-- Heatmap cells -->")
     cur = start_date
     while cur <= end_date:
-        day_of_week = cur.weekday()  # 0=Monday ... 6=Sunday
+        day_of_week = cur.weekday()
         week_num = (cur - start_date).days // 7
 
         x = left_margin + week_num * (cell_size + cell_gap)
         y = top_margin + month_label_height + day_of_week * (cell_size + cell_gap)
 
-        # 查找该日期的数据
+        # 查找数据
         date_str = cur.strftime("%Y-%m-%d")
-        day_data = data.get(date_str, {"score": None, "duration": None})
+        day_data = data.get(date_str, {"score": None, "duration": None, "nap": None})
         score = day_data.get("score")
         duration = day_data.get("duration")
+        nap = day_data.get("nap")
         category = get_score_category(score)
         color = COLORS[category]
+
+        # 判断是否含午睡
+        has_nap = nap is not None and nap > 0
+
+        # 构建 rect 属性
+        rect_attrs = f'x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="2" ry="2" fill="{color}"'
+        if has_nap:
+            rect_attrs += f' stroke="{NAP_BORDER_COLOR}" stroke-width="{NAP_STROKE_WIDTH}"'
 
         # tooltip
         score_text = f"{score}分" if score is not None else "无评分"
         duration_text = format_duration(duration)
-        tooltip = f"{date_str} | {score_text} | {duration_text}"
+        nap_text = f" + 午睡{format_duration(nap)}" if has_nap else ""
+        tooltip = f"{date_str} | {score_text} | {duration_text}{nap_text}"
 
         lines.append(
-            f'  <rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" '
-            f'rx="2" ry="2" fill="{color}" '
-            f'data-date="{date_str}" data-score="{score or ""}" data-duration="{duration or ""}">'
+            f'  <rect {rect_attrs} '
+            f'data-date="{date_str}" data-score="{score or ""}" data-duration="{duration or ""}" '
+            f'data-nap="{nap or ""}">'
             f"<title>{tooltip}</title></rect>"
         )
 
@@ -332,7 +337,6 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
 
 
 def save_svg(svg_content: str, output_path: str):
-    """保存 SVG 文件"""
     dir_name = os.path.dirname(output_path)
     if dir_name:
         os.makedirs(dir_name, exist_ok=True)
@@ -342,17 +346,14 @@ def save_svg(svg_content: str, output_path: str):
 
 
 def main():
-    """主函数"""
-    # 在 main() 内读取环境变量，确保 GitHub Actions env: 注入后再读取
     token = os.getenv("NOTION_TOKEN", "")
     db_id = os.getenv("NOTION_DATABASE_ID", "")
     target_year = os.getenv("TARGET_YEAR", str(datetime.now().year))
 
     log("=" * 50)
-    log(f"Sleep Heatmap Generator | {target_year}")
+    log(f"Sleep Heatmap Generator v2 | {target_year}")
     log("=" * 50)
 
-    # 校验配置
     if not token:
         log("[FATAL] NOTION_TOKEN 环境变量未设置")
         sys.exit(1)
