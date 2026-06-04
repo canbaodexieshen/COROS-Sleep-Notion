@@ -1,9 +1,11 @@
 """
 COROS Sleep Data to Notion Sync
 主程序入口
+使用 COROS 官方 MCP 服务获取睡眠数据（不会踢出手机 App）
 """
 
 import asyncio
+import json
 import os
 import sys
 from datetime import datetime
@@ -24,20 +26,23 @@ def load_config() -> dict:
     # 加载 .env 文件（本地开发时使用）
     load_dotenv()
 
-    # 支持 COROS_ACCOUNT 或 COROS_EMAIL（兼容旧配置）
-    coros_account = os.getenv("COROS_ACCOUNT") or os.getenv("COROS_EMAIL")
-
     config = {
-        "coros_account": coros_account,
-        "coros_password": os.getenv("COROS_PASSWORD"),
-        "coros_region": os.getenv("COROS_REGION", "asia"),
+        "coros_access_token": os.getenv("COROS_ACCESS_TOKEN"),
+        "coros_refresh_token": os.getenv("COROS_REFRESH_TOKEN"),
+        "coros_client_id": os.getenv("COROS_CLIENT_ID", "ccd9bd8c-6504-4b83-80ab-edad29e075cc"),
+        "coros_region": os.getenv("COROS_REGION", "cn"),
+        "coros_expires_at": int(os.getenv("COROS_EXPIRES_AT", "0")),
         "notion_token": os.getenv("NOTION_TOKEN"),
         "notion_database_id": os.getenv("NOTION_DATABASE_ID"),
         "sync_days": int(os.getenv("SYNC_DAYS", "7")),
     }
 
     # 验证必需的配置
-    missing = [k for k, v in config.items() if v is None and k != "sync_days"]
+    missing = []
+    for k in ["coros_access_token", "coros_refresh_token", "notion_token", "notion_database_id"]:
+        if config.get(k) is None:
+            missing.append(k)
+
     if missing:
         raise ValueError(f"缺少必需的环境变量: {', '.join(missing)}")
 
@@ -61,9 +66,11 @@ async def sync_sleep_data(config: dict) -> dict:
 
     # 初始化客户端
     coros_client = CorosClient(
-        account=config["coros_account"],
-        password=config["coros_password"],
+        access_token=config["coros_access_token"],
+        refresh_token=config["coros_refresh_token"],
+        client_id=config["coros_client_id"],
         region=config["coros_region"],
+        expires_at=config["coros_expires_at"] if config["coros_expires_at"] > 0 else None,
     )
 
     notion_client = NotionSleepClient(
@@ -113,6 +120,13 @@ async def sync_sleep_data(config: dict) -> dict:
         print(f"   创建: {stats['created']} 条")
         print(f"   更新: {stats['updated']} 条")
         print(f"   失败: {stats['failed']} 条")
+
+        # 5. 输出刷新后的 token（如果有）
+        refreshed_token = coros_client.get_refreshed_token_data()
+        if refreshed_token:
+            print()
+            print("🔑 Token 已刷新，新的 token 数据：")
+            print(json.dumps(refreshed_token, indent=2))
 
         return stats
 
