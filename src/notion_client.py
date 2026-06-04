@@ -1,12 +1,14 @@
 """
 Notion API Client - 将睡眠数据写入 Notion 数据库
-支持 Notion API 2025-09-03 版本（data_source 架构）
+使用 notion-client 官方 SDK（与 keep2notion 项目相同的方式）
 """
 
-import httpx
+import logging
+import os
 from datetime import datetime
 from typing import Optional
 
+from notion_client import Client
 from pydantic import BaseModel
 
 from .coros_client import SleepRecord
@@ -28,10 +30,7 @@ class NotionSleepPage(BaseModel):
 
 
 class NotionSleepClient:
-    """Notion 睡眠数据客户端（使用 httpx 直接调用 Notion API）"""
-
-    NOTION_API_BASE = "https://api.notion.com/v1"
-    NOTION_VERSION = "2022-06-28"
+    """Notion 睡眠数据客户端（使用 notion-client 官方 SDK）"""
 
     def __init__(self, token: str, database_id: str):
         """
@@ -43,48 +42,8 @@ class NotionSleepClient:
         """
         self.token = token
         self.database_id = database_id
-        self.data_source_id: Optional[str] = None  # 延迟获取
-        self.headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Notion-Version": self.NOTION_VERSION,
-        }
-        self.client = httpx.AsyncClient(timeout=30.0)
-
-    async def close(self):
-        """关闭 HTTP 客户端"""
-        await self.client.aclose()
-
-    async def _ensure_data_source_id(self) -> str:
-        """
-        确保有有效的 data_source_id
-        Notion API 2025-09-03 版本需要使用 data_source_id 而不是 database_id
-
-        Returns:
-            data_source_id
-        """
-        if self.data_source_id:
-            return self.data_source_id
-
-        # 获取数据库信息，提取 data_source_id
-        url = f"{self.NOTION_API_BASE}/databases/{self.database_id}"
-        response = await self.client.get(url, headers=self.headers)
-        response.raise_for_status()
-        data = response.json()
-
-        # 从响应中提取 data_source_id
-        # 新版本的 Notion API 会在 data_sources 字段中返回数据源列表
-        data_sources = data.get("data_sources", [])
-        if data_sources:
-            self.data_source_id = data_sources[0]["id"]
-            print(f"   📋 获取到 data_source_id: {self.data_source_id[:8]}...")
-            return self.data_source_id
-
-        # 如果没有 data_sources 字段，可能是因为数据库是旧版本
-        # 尝试使用 database_id 作为 data_source_id（向后兼容）
-        self.data_source_id = self.database_id
-        print(f"   📋 使用 database_id 作为 data_source_id（向后兼容）")
-        return self.data_source_id
+        # 使用 notion-client 官方 SDK（与 keep2notion 相同的方式）
+        self.client = Client(auth=token, log_level=logging.ERROR)
 
     def _format_date(self, date_str: str) -> str:
         """
@@ -177,7 +136,7 @@ class NotionSleepClient:
             if value.get("number") is not None or key == "日期"
         }
 
-    async def find_page_by_date(self, date: str) -> Optional[str]:
+    def find_page_by_date(self, date: str) -> Optional[str]:
         """
         按日期查找已存在的页面
 
@@ -187,30 +146,24 @@ class NotionSleepClient:
         Returns:
             页面 ID，如果不存在返回 None
         """
-        # 确保有 data_source_id
-        data_source_id = await self._ensure_data_source_id()
+        try:
+            # 使用 notion-client SDK 查询数据库（与 keep2notion 相同的方式）
+            filter = {"property": "日期", "date": {"equals": date}}
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                filter=filter,
+            )
 
-        # 使用新的 data_source 端点
-        url = f"{self.NOTION_API_BASE}/data_sources/{data_source_id}/query"
-        payload = {
-            "filter": {
-                "property": "日期",
-                "date": {
-                    "equals": date,
-                },
-            },
-        }
+            results = response.get("results", [])
+            if results:
+                return results[0]["id"]
+            return None
 
-        response = await self.client.post(url, json=payload, headers=self.headers)
-        response.raise_for_status()
-        data = response.json()
+        except Exception as e:
+            print(f"   ⚠️  查询数据库失败: {e}")
+            return None
 
-        results = data.get("results", [])
-        if results:
-            return results[0]["id"]
-        return None
-
-    async def create_sleep_page(self, record: SleepRecord) -> str:
+    def create_sleep_page(self, record: SleepRecord) -> str:
         """
         创建睡眠数据页面
 
@@ -220,25 +173,19 @@ class NotionSleepClient:
         Returns:
             创建的页面 ID
         """
-        # 确保有 data_source_id
-        data_source_id = await self._ensure_data_source_id()
-
         page = self._sleep_record_to_page(record)
         properties = self._build_page_properties(page)
 
-        url = f"{self.NOTION_API_BASE}/pages"
-        payload = {
-            "parent": {"data_source_id": data_source_id},
-            "properties": properties,
-        }
+        # 使用 notion-client SDK 创建页面（与 keep2notion 相同的方式）
+        parent = {"database_id": self.database_id, "type": "database_id"}
+        response = self.client.pages.create(
+            parent=parent,
+            properties=properties,
+        )
 
-        response = await self.client.post(url, json=payload, headers=self.headers)
-        response.raise_for_status()
-        data = response.json()
+        return response["id"]
 
-        return data["id"]
-
-    async def update_sleep_page(self, page_id: str, record: SleepRecord) -> str:
+    def update_sleep_page(self, page_id: str, record: SleepRecord) -> str:
         """
         更新睡眠数据页面
 
@@ -252,18 +199,15 @@ class NotionSleepClient:
         page = self._sleep_record_to_page(record)
         properties = self._build_page_properties(page)
 
-        url = f"{self.NOTION_API_BASE}/pages/{page_id}"
-        payload = {
-            "properties": properties,
-        }
+        # 使用 notion-client SDK 更新页面
+        response = self.client.pages.update(
+            page_id=page_id,
+            properties=properties,
+        )
 
-        response = await self.client.patch(url, json=payload, headers=self.headers)
-        response.raise_for_status()
-        data = response.json()
+        return response["id"]
 
-        return data["id"]
-
-    async def sync_sleep_record(self, record: SleepRecord) -> dict:
+    def sync_sleep_record(self, record: SleepRecord) -> dict:
         """
         同步单条睡眠记录（创建或更新）
 
@@ -276,11 +220,11 @@ class NotionSleepClient:
         date = self._format_date(record.date)
 
         # 查找已存在的页面
-        existing_page_id = await self.find_page_by_date(date)
+        existing_page_id = self.find_page_by_date(date)
 
         if existing_page_id:
             # 更新已存在的页面
-            page_id = await self.update_sleep_page(existing_page_id, record)
+            page_id = self.update_sleep_page(existing_page_id, record)
             return {
                 "action": "updated",
                 "page_id": page_id,
@@ -288,14 +232,14 @@ class NotionSleepClient:
             }
         else:
             # 创建新页面
-            page_id = await self.create_sleep_page(record)
+            page_id = self.create_sleep_page(record)
             return {
                 "action": "created",
                 "page_id": page_id,
                 "date": date,
             }
 
-    async def sync_sleep_records(self, records: list[SleepRecord]) -> list[dict]:
+    def sync_sleep_records(self, records: list[SleepRecord]) -> list[dict]:
         """
         批量同步睡眠记录
 
@@ -308,7 +252,7 @@ class NotionSleepClient:
         results = []
         for record in records:
             try:
-                result = await self.sync_sleep_record(record)
+                result = self.sync_sleep_record(record)
                 results.append(result)
             except Exception as e:
                 results.append({

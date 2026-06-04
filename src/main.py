@@ -118,7 +118,6 @@ async def sync_sleep_data(config: dict) -> dict:
 
     finally:
         await coros_client.close()
-        await notion_client.close()
 
 
 def main():
