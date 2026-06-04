@@ -198,27 +198,3 @@ python -m src.main
 2. 确认 Integration 有读写权限
 3. 查看 Actions 运行日志是否有错误
 
-## 📝 更新日志
-
-- **v2.0.0** (2026-06-04)
-  - 改用 COROS 官方 MCP 服务（不会踢出手机 App）
-  - 使用 OAuth2.0 认证（支持 token 自动刷新）
-  - 移除 Mobile API 依赖
-
-- **v1.0.0** (2026-06-04)
-  - 初始版本
-  - 使用 Mobile API 获取睡眠数据
-  - 支持 GitHub Actions 定时运行
-
-## 📄 许可证
-
-MIT License
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 🔗 相关项目
-
-- [coros-mcp](https://github.com/cygnusb/coros-mcp) - COROS MCP 服务器
-- [running_page](https://github.com/yihong0618/running_page) - 跑步数据可视化
