@@ -4,20 +4,24 @@ Sleep Score Heatmap Generator
 """
 
 import os
-import re
 import sys
 import json
-import shutil
-import subprocess
+import requests
 from datetime import datetime, date
 from typing import Optional
-
-from notion_client import Client
 
 # 配置
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
 TARGET_YEAR = os.getenv("TARGET_YEAR", str(datetime.now().year))
+
+# Notion API 配置
+NOTION_API_VERSION = "2022-06-28"
+NOTION_BASE_URL = "https://api.notion.com/v1"
+
+# 请求超时配置（秒）
+CONNECT_TIMEOUT = 5
+READ_TIMEOUT = 30
 
 # 输出目录
 OUT_FOLDER = "sleep_heatmap"
@@ -31,13 +35,54 @@ COLORS = {
     "empty": "#E8EAED",        # 无数据：灰色
 }
 
-# 暗黑模式颜色
-DARK_COLORS = {
-    "excellent": "#1ed760",
-    "good": "#ffdd00",
-    "poor": "#fa2f47",
-    "empty": "#2d333b",
-}
+
+def log(msg: str):
+    """带 flush 的输出，确保 GitHub Actions 实时显示日志"""
+    print(msg, flush=True)
+
+
+def notion_request(method: str, endpoint: str, data: dict = None) -> dict:
+    """
+    发送 Notion API 请求（使用 requests 库，正确处理代理和超时）
+
+    Args:
+        method: HTTP 方法（GET/POST/PATCH）
+        endpoint: API 端点
+        data: 请求数据
+
+    Returns:
+        API 响应
+    """
+    url = f"{NOTION_BASE_URL}{endpoint}"
+
+    headers = {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": NOTION_API_VERSION,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        if method == "GET":
+            resp = requests.get(url, headers=headers, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+        elif method == "POST":
+            resp = requests.post(url, json=data, headers=headers, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+        elif method == "PATCH":
+            resp = requests.patch(url, json=data, headers=headers, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+        else:
+            raise ValueError(f"Unsupported method: {method}")
+
+        resp.raise_for_status()
+        return resp.json()
+
+    except requests.exceptions.ConnectionError as e:
+        log(f"   ❌ 连接 Notion API 失败: {e}")
+        raise
+    except requests.exceptions.Timeout as e:
+        log(f"   ❌ Notion API 请求超时: {e}")
+        raise
+    except requests.exceptions.HTTPError as e:
+        log(f"   ❌ Notion API 错误: {e.response.status_code} {e.response.text[:200]}")
+        raise
 
 
 def get_notion_data(year: int) -> dict:
@@ -47,47 +92,53 @@ def get_notion_data(year: int) -> dict:
     Returns:
         dict: {日期字符串: {"score": 评分, "duration": 时长分钟}}
     """
-    print(f"📥 正在从 Notion 获取 {year} 年睡眠数据...")
+    log(f"📥 正在从 Notion 获取 {year} 年睡眠数据...")
 
-    client = Client(auth=NOTION_TOKEN)
     data = {}
 
     # 构建日期范围
     start_date = f"{year}-01-01"
     end_date = f"{year}-12-31"
 
+    # 构建查询参数
+    query_data = {
+        "filter": {
+            "and": [
+                {
+                    "property": "日期",
+                    "date": {
+                        "on_or_after": start_date,
+                    },
+                },
+                {
+                    "property": "日期",
+                    "date": {
+                        "on_or_before": end_date,
+                    },
+                },
+            ],
+        },
+        "page_size": 100,
+    }
+
     # 分页查询
     has_more = True
     start_cursor = None
+    page_count = 0
 
     while has_more:
-        query_params = {
-            "database_id": NOTION_DATABASE_ID,
-            "filter": {
-                "and": [
-                    {
-                        "property": "日期",
-                        "date": {
-                            "on_or_after": start_date,
-                        },
-                    },
-                    {
-                        "property": "日期",
-                        "date": {
-                            "on_or_before": end_date,
-                        },
-                    },
-                ],
-            },
-            "page_size": 100,
-        }
-
         if start_cursor:
-            query_params["start_cursor"] = start_cursor
+            query_data["start_cursor"] = start_cursor
 
-        response = client.databases.query(**query_params)
+        page_count += 1
+        log(f"   📄 查询第 {page_count} 页...")
 
-        for page in response.get("results", []):
+        response = notion_request("POST", f"/databases/{NOTION_DATABASE_ID}/query", query_data)
+
+        results = response.get("results", [])
+        log(f"   📦 本页获取 {len(results)} 条记录")
+
+        for page in results:
             try:
                 # 提取日期
                 date_prop = page["properties"].get("日期", {})
@@ -121,13 +172,13 @@ def get_notion_data(year: int) -> dict:
                     }
 
             except Exception as e:
-                print(f"   ⚠️  解析记录失败: {e}")
+                log(f"   ⚠️  解析记录失败: {e}")
                 continue
 
         has_more = response.get("has_more", False)
         start_cursor = response.get("next_cursor")
 
-    print(f"   ✅ 获取到 {len(data)} 条记录")
+    log(f"   ✅ 共获取 {len(data)} 条记录")
     return data
 
 
@@ -168,13 +219,15 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     Returns:
         SVG 字符串
     """
-    print(f"🎨 正在生成 {year} 年热力图...")
+    log(f"🎨 正在生成 {year} 年热力图...")
 
     # 计算统计信息
     stats = {"excellent": 0, "good": 0, "poor": 0, "empty": 0}
     for d in data.values():
         cat = get_score_category(d.get("score"))
         stats[cat] += 1
+
+    log(f"   📊 统计: {stats['excellent']}天优秀 · {stats['good']}天良好 · {stats['poor']}天较差")
 
     # 计算日期范围
     start_date = date(year, 1, 1)
@@ -218,7 +271,11 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
             x = left_margin + week_num * (cell_size + cell_gap)
             svg += f'  <text x="{x}" y="{top_margin + 15}" class="month-label">{months[current_date.month - 1]}</text>\n'
             last_month = current_date.month
-        current_date = current_date.replace(day=min(current_date.day + 7, 28))
+        # 移动到下周
+        days_until_sunday = 6 - current_date.weekday()
+        if days_until_sunday == 0:
+            days_until_sunday = 7
+        current_date = date.fromordinal(current_date.toordinal() + days_until_sunday)
 
     # 星期标签
     day_labels = ["Mon", "Wed", "Fri"]
@@ -253,7 +310,8 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
 
         svg += f'  <rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="2" ry="2" fill="{color}" data-date="{date_str}" data-score="{score or ""}" data-duration="{duration or ""}"><title>{tooltip}</title></rect>\n'
 
-        current_date = current_date.replace(day=current_date.day + 1) if current_date.day < 28 else current_date + __import__('datetime').timedelta(days=1)
+        # 移动到下一天
+        current_date = date.fromordinal(current_date.toordinal() + 1)
 
     # 图例
     legend_y = total_height - 15
@@ -271,7 +329,7 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
 
     svg += '</svg>'
 
-    print(f"   ✅ SVG 生成完成")
+    log(f"   ✅ SVG 生成完成")
     return svg
 
 
@@ -280,21 +338,34 @@ def save_svg(svg_content: str, output_path: str):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(svg_content)
-    print(f"   💾 已保存到 {output_path}")
+    log(f"   💾 已保存到 {output_path}")
 
 
 def main():
     """主函数"""
-    year = int(TARGET_YEAR)
+    # 立即 flush，确保 GitHub Actions 能看到输出
+    log("=" * 50)
+    log(f"🚀 开始生成睡眠评分热力图")
 
-    print(f"🚀 开始生成 {year} 年睡眠评分热力图")
-    print()
+    # 检查配置
+    if not NOTION_TOKEN:
+        log("❌ 错误：未设置 NOTION_TOKEN 环境变量")
+        sys.exit(1)
+    if not NOTION_DATABASE_ID:
+        log("❌ 错误：未设置 NOTION_DATABASE_ID 环境变量")
+        sys.exit(1)
+
+    year = int(TARGET_YEAR)
+    log(f"📅 目标年份: {year}")
+    log(f"🔑 Token: {NOTION_TOKEN[:10]}...{NOTION_TOKEN[-4:]}")
+    log(f"📋 Database ID: {NOTION_DATABASE_ID[:10]}...")
+    log()
 
     # 获取数据
     data = get_notion_data(year)
 
     if not data:
-        print("⚠️  没有获取到数据，跳过生成")
+        log("⚠️  没有获取到数据，跳过生成")
         return
 
     # 生成 SVG
@@ -308,8 +379,8 @@ def main():
 
     save_svg(svg, output_path)
 
-    print()
-    print(f"🎉 热力图生成完成！")
+    log()
+    log(f"🎉 热力图生成完成！")
 
 
 if __name__ == "__main__":
