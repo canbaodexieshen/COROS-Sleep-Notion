@@ -3,7 +3,7 @@ name: Update Sleep Heatmap
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 15 * * *" # 北京时间 23:00（UTC 15:00）
+    - cron: "0 3 * * *" 
 
 permissions:
   contents: write
