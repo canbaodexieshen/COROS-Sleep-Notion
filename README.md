@@ -84,7 +84,7 @@ https://www.notion.so/xxxxxxxxxx?v=yyyyyyyyyy
 
 | Secret 名称 | 说明 | 示例 |
 |-------------|------|------|
-| `COROS_EMAIL` | COROS 登录邮箱 | user@example.com |
+| `COROS_ACCOUNT` | COROS 登录账号（邮箱或手机号） | user@example.com 或 13800138000 |
 | `COROS_PASSWORD` | COROS 登录密码 | your_password |
 | `COROS_REGION` | COROS 账号区域 | asia |
 | `NOTION_TOKEN` | Notion Integration Token | ntn_xxx... |

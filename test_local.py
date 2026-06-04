@@ -19,19 +19,26 @@ async def test_coros_connection():
     """测试 COROS 连接"""
     from src.coros_client import CorosClient
 
-    email = os.getenv("COROS_EMAIL")
+    # 支持 COROS_ACCOUNT 或 COROS_EMAIL（兼容旧配置）
+    account = os.getenv("COROS_ACCOUNT") or os.getenv("COROS_EMAIL")
     password = os.getenv("COROS_PASSWORD")
     region = os.getenv("COROS_REGION", "asia")
 
-    if not email or not password:
-        print("❌ 缺少 COROS_EMAIL 或 COROS_PASSWORD 环境变量")
+    if not account or not password:
+        print("❌ 缺少 COROS_ACCOUNT 或 COROS_PASSWORD 环境变量")
         return False
 
     print(f"🔐 正在登录 COROS...")
-    print(f"   邮箱: {email[:3]}***{email[-4:]}")
+    # 隐藏账号信息（保留前3位和后4位）
+    if "@" in account:
+        # 邮箱
+        print(f"   邮箱: {account[:3]}***{account[-4:]}")
+    else:
+        # 手机号
+        print(f"   手机号: {account[:3]}****{account[-4:]}")
     print(f"   区域: {region}")
 
-    client = CorosClient(email=email, password=password, region=region)
+    client = CorosClient(account=account, password=password, region=region)
 
     try:
         # 尝试获取最近 3 天的数据
