@@ -2,10 +2,10 @@
 Notion API Client - 将睡眠数据写入 Notion 数据库
 """
 
+import httpx
 from datetime import datetime
 from typing import Optional
 
-from notion_client import Client
 from pydantic import BaseModel
 
 from .coros_client import SleepRecord
@@ -27,7 +27,10 @@ class NotionSleepPage(BaseModel):
 
 
 class NotionSleepClient:
-    """Notion 睡眠数据客户端"""
+    """Notion 睡眠数据客户端（使用 httpx 直接调用 Notion API）"""
+
+    NOTION_API_BASE = "https://api.notion.com/v1"
+    NOTION_VERSION = "2022-06-28"
 
     def __init__(self, token: str, database_id: str):
         """
@@ -37,8 +40,18 @@ class NotionSleepClient:
             token: Notion Integration Token
             database_id: Notion 数据库 ID
         """
-        self.client = Client(auth=token)
+        self.token = token
         self.database_id = database_id
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Notion-Version": self.NOTION_VERSION,
+        }
+        self.client = httpx.AsyncClient(timeout=30.0)
+
+    async def close(self):
+        """关闭 HTTP 客户端"""
+        await self.client.aclose()
 
     def _format_date(self, date_str: str) -> str:
         """
@@ -141,17 +154,21 @@ class NotionSleepClient:
         Returns:
             页面 ID，如果不存在返回 None
         """
-        response = self.client.databases.query(
-            database_id=self.database_id,
-            filter={
+        url = f"{self.NOTION_API_BASE}/databases/{self.database_id}/query"
+        payload = {
+            "filter": {
                 "property": "日期",
                 "date": {
                     "equals": date,
                 },
             },
-        )
+        }
 
-        results = response.get("results", [])
+        response = await self.client.post(url, json=payload, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+
+        results = data.get("results", [])
         if results:
             return results[0]["id"]
         return None
@@ -169,12 +186,17 @@ class NotionSleepClient:
         page = self._sleep_record_to_page(record)
         properties = self._build_page_properties(page)
 
-        response = self.client.pages.create(
-            parent={"database_id": self.database_id},
-            properties=properties,
-        )
+        url = f"{self.NOTION_API_BASE}/pages"
+        payload = {
+            "parent": {"database_id": self.database_id},
+            "properties": properties,
+        }
 
-        return response["id"]
+        response = await self.client.post(url, json=payload, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+
+        return data["id"]
 
     async def update_sleep_page(self, page_id: str, record: SleepRecord) -> str:
         """
@@ -190,12 +212,16 @@ class NotionSleepClient:
         page = self._sleep_record_to_page(record)
         properties = self._build_page_properties(page)
 
-        response = self.client.pages.update(
-            page_id=page_id,
-            properties=properties,
-        )
+        url = f"{self.NOTION_API_BASE}/pages/{page_id}"
+        payload = {
+            "properties": properties,
+        }
 
-        return response["id"]
+        response = await self.client.patch(url, json=payload, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+
+        return data["id"]
 
     async def sync_sleep_record(self, record: SleepRecord) -> dict:
         """
