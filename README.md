@@ -2,6 +2,8 @@
 
 自动将 COROS 高驰手表的睡眠数据同步到 Notion 数据库。
 
+**使用 COROS 官方 MCP 服务**，不会踢出手机 App 登录！
+
 ## ✨ 功能特点
 
 - 🔄 **自动同步**：通过 GitHub Actions 每日定时运行
@@ -9,6 +11,7 @@
 - 📊 **智能去重**：按日期自动更新，不会重复创建
 - 🔒 **安全存储**：敏感信息使用 GitHub Secrets 加密存储
 - 🚀 **易于部署**：一键配置，无需服务器
+- 📱 **不踢出手机 App**：使用官方 MCP 服务（OAuth2.0 认证）
 
 ## 📋 数据字段
 
@@ -78,19 +81,41 @@ https://www.notion.so/xxxxxxxxxx?v=yyyyyyyyyy
 ```
 其中 `xxxxxxxxxx` 就是数据库 ID（32 位字符串）
 
-### 6. 配置 GitHub Secrets
+### 6. 获取 COROS Token
+
+**在 WorkBuddy 中运行 coros-health 技能**，它会自动完成登录并获取 token。
+
+然后执行以下命令获取 token 数据：
+```bash
+cat ~/.coros-mcp-skill-gateway-ts/cn/token.json
+```
+
+你会看到类似这样的输出：
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "u43wl...",
+  "expires_at_epoch": 1781072275,
+  "token_type": "Bearer",
+  "client_id": "ccd9bd8c-6504-4b83-80ab-edad29e075cc"
+}
+```
+
+### 7. 配置 GitHub Secrets
 
 进入你 Fork 的仓库，点击「Settings」→「Secrets and variables」→「Actions」，添加以下 Secrets：
 
 | Secret 名称 | 说明 | 示例 |
 |-------------|------|------|
-| `COROS_ACCOUNT` | COROS 登录账号（邮箱或手机号） | user@example.com 或 13800138000 |
-| `COROS_PASSWORD` | COROS 登录密码 | your_password |
-| `COROS_REGION` | COROS 账号区域 | asia |
+| `COROS_ACCESS_TOKEN` | COROS 访问令牌 | eyJ... |
+| `COROS_REFRESH_TOKEN` | COROS 刷新令牌 | u43wl... |
+| `COROS_CLIENT_ID` | 客户端 ID | ccd9bd8c-6504-4b83-80ab-edad29e075cc |
+| `COROS_REGION` | 区域 | cn |
+| `COROS_EXPIRES_AT` | 令牌过期时间戳 | 1781072275 |
 | `NOTION_TOKEN` | Notion Integration Token | ntn_xxx... |
 | `NOTION_DATABASE_ID` | Notion 数据库 ID | xxx... |
 
-### 7. 手动触发测试
+### 8. 手动触发测试
 
 1. 进入仓库的「Actions」页面
 2. 选择「Sync COROS Sleep Data to Notion」
@@ -106,6 +131,20 @@ on:
   schedule:
     - cron: '0 0 * * *'  # UTC 0:00 = 北京时间 8:00
 ```
+
+## 🔄 Token 刷新
+
+COROS Token 有效期约 30 天。脚本会在每次运行时自动检查并刷新 token。
+
+如果 token 过期，脚本会：
+1. 使用 refresh_token 获取新的 access_token
+2. 输出新的 token 数据到日志
+
+**如何更新 GitHub Secrets**：
+1. 查看 GitHub Actions 运行日志
+2. 找到 `🔑 Token 已刷新，新的 token 数据：` 部分
+3. 复制新的 token 数据
+4. 更新 GitHub Secrets 中的 `COROS_ACCESS_TOKEN`、`COROS_REFRESH_TOKEN`、`COROS_EXPIRES_AT`
 
 ## 🛠️ 本地开发
 
@@ -134,19 +173,24 @@ python -m src.main
 
 ## ⚠️ 注意事项
 
-1. **非官方 API**：本项目使用 COROS 非官方 API（通过逆向工程获得），可能随时变更
-2. **账号安全**：你的 COROS 密码会安全存储在 GitHub Secrets 中，不会泄露
+1. **使用 COROS 官方 MCP 服务**：本项目使用 OAuth2.0 认证，不会踢出手机 App
+2. **Token 有效期**：约 30 天，过期后需要重新获取
 3. **数据隐私**：所有数据处理都在 GitHub Actions 中进行，不会发送到第三方
-4. **首次同步**：首次运行会同步最近 7 天的数据，之后每天同步最新数据
 
 ## 🔧 故障排除
 
 ### 同步失败
 
 1. 检查 GitHub Actions 日志
-2. 确认 COROS 账号密码正确
+2. 确认 COROS Token 正确且未过期
 3. 确认 Notion Integration 已授权数据库访问
 4. 确认 GitHub Secrets 配置正确
+
+### Token 过期
+
+1. 在 WorkBuddy 中重新运行 coros-health 技能
+2. 获取新的 token 数据
+3. 更新 GitHub Secrets
 
 ### 数据未更新
 
@@ -156,9 +200,14 @@ python -m src.main
 
 ## 📝 更新日志
 
+- **v2.0.0** (2026-06-04)
+  - 改用 COROS 官方 MCP 服务（不会踢出手机 App）
+  - 使用 OAuth2.0 认证（支持 token 自动刷新）
+  - 移除 Mobile API 依赖
+
 - **v1.0.0** (2026-06-04)
   - 初始版本
-  - 支持 COROS 睡眠数据同步
+  - 使用 Mobile API 获取睡眠数据
   - 支持 GitHub Actions 定时运行
 
 ## 📄 许可证
@@ -171,5 +220,5 @@ MIT License
 
 ## 🔗 相关项目
 
-- [coros-mcp](https://github.com/cygnusb/coros-mcp) - COROS MCP 服务器（本项目的 API 逻辑来源）
+- [coros-mcp](https://github.com/cygnusb/coros-mcp) - COROS MCP 服务器
 - [running_page](https://github.com/yihong0618/running_page) - 跑步数据可视化
