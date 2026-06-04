@@ -6,393 +6,241 @@
     <title>睡眠评分热力图</title>
     <style>
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-            background: #ffffff;
-            color: #24292f;
+            margin: 0;
+            padding: 0;
             display: flex;
             flex-direction: column;
-            align-items: center;
             min-height: 100vh;
-            padding: 20px;
-            transition: background-color 0.3s ease, color 0.3s ease;
+            background-color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            overflow: hidden;
+            transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        body.dark-mode {
-            background: #0d1117;
-            color: #c9d1d9;
-        }
-
-        .container {
-            max-width: 900px;
-            width: 100%;
-        }
-
-        /* 控制栏 */
-        .controls {
+        header {
+            padding: 22px 15px 8px 15px;
             display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 16px;
-            padding: 8px 16px;
-            background: rgba(255, 255, 255, 0.8);
+            justify-content: flex-end;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .controls-wrapper {
+            display: flex;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 5px 12px;
             border-radius: 14px;
-            border: 1px solid #e1e4e8;
-            flex-wrap: wrap;
-            transition: background-color 0.3s ease, border-color 0.3s ease;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.07);
+            border: 1px solid rgba(0, 0, 0, 0.06);
         }
 
-        body.dark-mode .controls {
-            background: rgba(22, 27, 34, 0.8);
-            border-color: #30363d;
-        }
-
-        /* 年份选择器 */
-        .year-select {
-            padding: 6px 12px;
-            border: 1px solid #e1e4e8;
-            border-radius: 8px;
-            background: #ffffff;
-            color: #24292f;
-            font-size: 14px;
+        select, button {
+            padding: 4px 10px;
+            border-radius: 7px;
+            border: 1px solid #ddd;
+            background-color: #fff;
+            font-size: 12px;
+            color: #444;
             cursor: pointer;
+            transition: all 0.2s ease;
             outline: none;
-            transition: all 0.3s ease;
+            font-family: inherit;
         }
 
-        body.dark-mode .year-select {
-            background: #161b22;
-            color: #c9d1d9;
-            border-color: #30363d;
+        select:hover, button:hover {
+            border-color: #bbb;
+            background-color: #f5f5f5;
         }
 
-        .year-select:hover {
-            border-color: #0969da;
-        }
-
-        /* 主题切换按钮 */
-        .theme-toggle {
-            padding: 6px 12px;
-            border: 1px solid #e1e4e8;
-            border-radius: 8px;
-            background: #ffffff;
-            color: #24292f;
-            font-size: 16px;
-            cursor: pointer;
-            outline: none;
-            transition: all 0.3s ease;
+        #heatmap-scroll-container {
+            flex: 1;
+            overflow: auto;
             display: flex;
-            align-items: center;
             justify-content: center;
-            width: 36px;
-            height: 36px;
+            align-items: flex-start;
+            padding: 8px 15px 20px 15px;
         }
 
-        body.dark-mode .theme-toggle {
-            background: #161b22;
-            color: #c9d1d9;
-            border-color: #30363d;
+        #heatmap-content {
+            width: 100%;
+            max-width: 1000px;
         }
 
-        .theme-toggle:hover {
-            border-color: #0969da;
-            background: #f6f8fa;
+        svg {
+            display: block;
+            width: 100%;
+            height: auto;
+            transition: filter 0.4s ease;
         }
 
-        body.dark-mode .theme-toggle:hover {
-            background: #21262d;
-        }
-
-        /* 图例 */
+        /* 图例说明 */
         .legend {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-left: auto;
-            font-size: 12px;
-            color: #656d76;
+            margin-left: 10px;
+            font-size: 11px;
+            color: #888;
         }
 
         .legend-item {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
         }
 
-        .legend-color {
-            width: 13px;
-            height: 13px;
+        .legend-box {
+            width: 10px;
+            height: 10px;
             border-radius: 2px;
         }
 
-        .legend-color.excellent { background: #1ed760; }
-        .legend-color.good { background: #ffdd00; }
-        .legend-color.poor { background: #fa2f47; }
-        .legend-color.empty { background: #E8EAED; }
-
-        body.dark-mode .legend-color.empty { background: #2d333b; }
-
-        /* 热力图容器 */
-        .heatmap-container {
-            overflow-x: auto;
-            padding: 10px 0;
+        body.dark-mode .legend {
+            color: #888;
         }
 
-        .heatmap-container svg {
-            max-width: 100%;
-            height: auto;
+        .loading-text {
+            color: #aaa;
+            font-size: 12px;
+            text-align: center;
+            margin-top: 50px;
+            letter-spacing: 0.02em;
         }
 
-        /* 暗黑模式 SVG 滤镜 */
-        body.dark-mode .heatmap-container svg {
+        /* ==================== 智能深色模式 ==================== */
+        body.dark-mode {
+            background-color: #191919;
+        }
+
+        body.dark-mode .controls-wrapper {
+            background: rgba(35, 35, 35, 0.9);
+            border-color: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+        }
+
+        body.dark-mode select,
+        body.dark-mode button {
+            background-color: #2c2c2c;
+            color: #ccc;
+            border-color: #444;
+        }
+
+        body.dark-mode select:hover,
+        body.dark-mode button:hover {
+            background-color: #383838;
+        }
+
+        /* 智能反色滤镜：保留颜色感知，让深色模式下背景正常显示 */
+        body.dark-mode svg {
             filter: invert(0.9) hue-rotate(180deg) brightness(1.1);
-        }
-
-        /* 年度热力图链接 */
-        .annual-link {
-            margin-top: 16px;
-            padding: 8px 16px;
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(12px);
-            border-radius: 14px;
-            border: 1px solid #e1e4e8;
-            transition: background-color 0.3s ease, border-color 0.3s ease;
-        }
-
-        body.dark-mode .annual-link {
-            background: rgba(22, 27, 34, 0.8);
-            border-color: #30363d;
-        }
-
-        .annual-link a {
-            color: #0969da;
-            text-decoration: none;
-            font-size: 14px;
-        }
-
-        body.dark-mode .annual-link a {
-            color: #58a6ff;
-        }
-
-        .annual-link a:hover {
-            text-decoration: underline;
-        }
-
-        /* 加载动画 */
-        .loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 40px;
-            color: #656d76;
-        }
-
-        .loading-spinner {
-            width: 24px;
-            height: 24px;
-            border: 3px solid #e1e4e8;
-            border-top-color: #0969da;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-right: 8px;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* 响应式 */
-        @media (max-width: 640px) {
-            .controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .legend {
-                margin-left: 0;
-                justify-content: center;
-            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- 控制栏 -->
-        <div class="controls">
-            <!-- 年份选择器 -->
-            <select id="year-select" class="year-select">
-                <!-- 动态生成 -->
+    <header>
+        <div class="controls-wrapper">
+            <select id="year-select">
+                <option value="current">加载中...</option>
             </select>
-
-            <!-- 主题切换按钮 -->
-            <button id="theme-toggle" class="theme-toggle" title="切换主题">
-                <span id="theme-icon">🌙</span>
-            </button>
-
-            <!-- 图例 -->
+            <button id="theme-toggle" title="切换深色/浅色模式">🌙</button>
             <div class="legend">
-                <div class="legend-item">
-                    <div class="legend-color empty"></div>
-                    <span>无数据</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color poor"></div>
-                    <span>&lt;60分</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color good"></div>
-                    <span>60-85分</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color excellent"></div>
-                    <span>&gt;85分</span>
-                </div>
+                <div class="legend-item"><div class="legend-box" style="background:#E8EAED;border:1px solid #ccc;"></div><span>无数据</span></div>
+                <div class="legend-item"><div class="legend-box" style="background:#fa2f47;"></div><span>&lt;60分</span></div>
+                <div class="legend-item"><div class="legend-box" style="background:#ffdd00;"></div><span>60-85分</span></div>
+                <div class="legend-item"><div class="legend-box" style="background:#1ed760;"></div><span>&gt;85分</span></div>
             </div>
         </div>
+    </header>
 
-        <!-- 热力图 -->
-        <div class="heatmap-container" id="heatmap">
-            <div class="loading">
-                <div class="loading-spinner"></div>
-                <span>加载中...</span>
-            </div>
-        </div>
-
-        <!-- 年度热力图链接 -->
-        <div class="annual-link" id="annual-link" style="display: none;">
-            <a id="annual-href" href="#" target="_blank">📊 查看年度热力图</a>
+    <div id="heatmap-scroll-container">
+        <div id="heatmap-content">
+            <p class="loading-text">正在加载睡眠评分热力图…</p>
         </div>
     </div>
 
     <script>
-        // 配置
-        const CURRENT_YEAR = new Date().getFullYear();
-        const HEATMAP_PATHS = {
-            current: 'sleep_heatmap/main.svg',
-            historical: (year) => `old_heatmap/${year}.svg`
-        };
-
-        // 状态
-        let isDarkMode = false;
-        let currentYear = CURRENT_YEAR;
-
-        // DOM 元素
-        const yearSelect = document.getElementById('year-select');
+        const content     = document.getElementById('heatmap-content');
+        const yearSelect  = document.getElementById('year-select');
         const themeToggle = document.getElementById('theme-toggle');
-        const themeIcon = document.getElementById('theme-icon');
-        const heatmapContainer = document.getElementById('heatmap');
-        const annualLink = document.getElementById('annual-link');
-        const annualHref = document.getElementById('annual-href');
 
-        // 初始化年份选择器
-        function initYearSelect() {
-            // 当前年
-            const currentOption = document.createElement('option');
-            currentOption.value = CURRENT_YEAR;
-            currentOption.textContent = `${CURRENT_YEAR} (今年)`;
-            yearSelect.appendChild(currentOption);
+        // 自动填入当前年份并动态生成年份选项
+        const currentYear = new Date().getFullYear();
+        yearSelect.options[0].text = `${currentYear}`;
 
-            // 历史年份（从 2024 到去年）
-            for (let year = CURRENT_YEAR - 1; year >= 2024; year--) {
-                const option = document.createElement('option');
-                option.value = year;
-                option.textContent = year;
-                yearSelect.appendChild(option);
-            }
+        // 动态添加过往年份选项（从2024到当前年-1）
+        for (let y = currentYear - 1; y >= 2024; y--) {
+            const option = document.createElement('option');
+            option.value = y;
+            option.textContent = `${y}`;
+            yearSelect.appendChild(option);
         }
 
-        // 加载热力图
-        async function loadHeatmap(year) {
-            heatmapContainer.innerHTML = '<div class="loading"><div class="loading-spinner"></div><span>加载中...</span></div>';
-
-            const path = year === CURRENT_YEAR ? HEATMAP_PATHS.current : HEATMAP_PATHS.historical(year);
-
-            try {
-                const response = await fetch(path);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const svgText = await response.text();
-                heatmapContainer.innerHTML = svgText;
-
-                // 更新年度热力图链接
-                if (year < CURRENT_YEAR) {
-                    annualLink.style.display = 'block';
-                    annualHref.href = `old_heatmap/${year}.svg`;
-                    annualHref.textContent = `📊 查看 ${year} 年度热力图`;
-                } else {
-                    annualLink.style.display = 'none';
-                }
-
-            } catch (error) {
-                heatmapContainer.innerHTML = `<div class="loading" style="color: #fa2f47;">❌ 加载失败: ${error.message}</div>`;
-            }
+        // 加载函数
+        function loadHeatmap(url) {
+            content.innerHTML = '<p class="loading-text">正在同步睡眠记录…</p>';
+            fetch(url)
+                .then(res => {
+                    if (!res.ok) throw new Error(`该年份尚无存档文件 (${res.status})`);
+                    return res.text();
+                })
+                .then(svg => {
+                    content.innerHTML = svg;
+                })
+                .catch(err => {
+                    content.innerHTML = `<p style="color:#888;text-align:center;font-size:12px;">${err.message}</p>`;
+                });
         }
 
-        // 主题切换
-        function toggleTheme() {
-            isDarkMode = !isDarkMode;
-            document.body.classList.toggle('dark-mode', isDarkMode);
-            themeIcon.textContent = isDarkMode ? '☀️' : '🌙';
+        // 初始加载当前年热力图
+        loadHeatmap('sleep_heatmap/main.svg');
 
-            // 保存偏好
-            localStorage.setItem('sleep-heatmap-theme', isDarkMode ? 'dark' : 'light');
-        }
-
-        // 检测系统主题
-        function detectSystemTheme() {
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const savedTheme = localStorage.getItem('sleep-heatmap-theme');
-
-            if (savedTheme) {
-                isDarkMode = savedTheme === 'dark';
+        // 年份切换
+        yearSelect.addEventListener('change', e => {
+            if (e.target.value === 'current') {
+                loadHeatmap('sleep_heatmap/main.svg');
             } else {
-                isDarkMode = prefersDark;
+                loadHeatmap(`old_heatmap/${e.target.value}.svg`);
             }
+        });
 
-            document.body.classList.toggle('dark-mode', isDarkMode);
-            themeIcon.textContent = isDarkMode ? '☀️' : '🌙';
-        }
+        // ================= 智能主题切换逻辑 =================
 
-        // 检测 Notion 嵌入主题
-        function detectNotionTheme() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const theme = urlParams.get('theme');
-            if (theme === 'dark') {
-                isDarkMode = true;
+        function applyTheme(isDark) {
+            if (isDark) {
                 document.body.classList.add('dark-mode');
-                themeIcon.textContent = '☀️';
+                themeToggle.innerText = '☀️';
+            } else {
+                document.body.classList.remove('dark-mode');
+                themeToggle.innerText = '🌙';
             }
         }
 
-        // 事件监听
-        yearSelect.addEventListener('change', (e) => {
-            currentYear = parseInt(e.target.value);
-            loadHeatmap(currentYear);
+        // 1. 自动感应系统设置
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+        // 兼容 Notion 嵌入：Notion 经常通过 URL 参数传递 theme=dark
+        const urlParams = new URLSearchParams(window.location.search);
+        const isNotionDark = urlParams.get('theme') === 'dark';
+
+        applyTheme(systemPrefersDark.matches || isNotionDark); // 初始化
+
+        // 2. 监听系统设置变化
+        systemPrefersDark.addEventListener('change', e => {
+            applyTheme(e.matches);
         });
 
-        themeToggle.addEventListener('click', toggleTheme);
-
-        // 监听系统主题变化
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-            if (!localStorage.getItem('sleep-heatmap-theme')) {
-                isDarkMode = e.matches;
-                document.body.classList.toggle('dark-mode', isDarkMode);
-                themeIcon.textContent = isDarkMode ? '☀️' : '🌙';
-            }
+        // 3. 手动切换覆盖
+        themeToggle.addEventListener('click', () => {
+            const isCurrentlyDark = document.body.classList.contains('dark-mode');
+            applyTheme(!isCurrentlyDark);
         });
-
-        // 初始化
-        detectSystemTheme();
-        detectNotionTheme();
-        initYearSelect();
-        loadHeatmap(CURRENT_YEAR);
     </script>
 </body>
 </html>

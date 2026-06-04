@@ -323,19 +323,6 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
 
         cur = date.fromordinal(cur.toordinal() + 1)
 
-    # 图例
-    lines.append("")
-    legend_y = total_height - 15
-    legend_x = left_margin
-    lines.append(f'  <text x="{legend_x}" y="{legend_y}" font-size="12" fill="#656d76">Less</text>')
-    for i, cat in enumerate(["empty", "poor", "good", "excellent"]):
-        lx = legend_x + 30 + i * 16
-        lines.append(
-            f'  <rect x="{lx}" y="{legend_y - 10}" width="{cell_size}" height="{cell_size}" '
-            f'rx="2" ry="2" fill="{COLORS[cat]}"/>'
-        )
-    lines.append(f'  <text x="{legend_x + 30 + 4 * 16}" y="{legend_y}" font-size="12" fill="#656d76">More</text>')
-
     lines.append("</svg>")
 
     svg = "\n".join(lines)
