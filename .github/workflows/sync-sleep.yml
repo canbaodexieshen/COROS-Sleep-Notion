@@ -34,7 +34,7 @@ jobs:
 
       - name: Run sync script
         env:
-          COROS_EMAIL: ${{ secrets.COROS_EMAIL }}
+          COROS_ACCOUNT: ${{ secrets.COROS_ACCOUNT }}
           COROS_PASSWORD: ${{ secrets.COROS_PASSWORD }}
           COROS_REGION: ${{ secrets.COROS_REGION }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
