@@ -389,11 +389,4 @@
   <rect x="856" y="66" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-12-29" data-score="" data-duration=""><title>2026-12-29 | 无评分 | N/A</title></rect>
   <rect x="856" y="82" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-12-30" data-score="" data-duration=""><title>2026-12-30 | 无评分 | N/A</title></rect>
   <rect x="872" y="98" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-12-31" data-score="" data-duration=""><title>2026-12-31 | 无评分 | N/A</title></rect>
-
-  <text x="40" y="167" font-size="12" fill="#656d76">Less</text>
-  <rect x="70" y="157" width="13" height="13" rx="2" ry="2" fill="#E8EAED"/>
-  <rect x="86" y="157" width="13" height="13" rx="2" ry="2" fill="#fa2f47"/>
-  <rect x="102" y="157" width="13" height="13" rx="2" ry="2" fill="#ffdd00"/>
-  <rect x="118" y="157" width="13" height="13" rx="2" ry="2" fill="#1ed760"/>
-  <text x="134" y="167" font-size="12" fill="#656d76">More</text>
 </svg>
