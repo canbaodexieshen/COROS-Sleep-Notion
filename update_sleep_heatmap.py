@@ -12,7 +12,6 @@ import subprocess
 from datetime import datetime, date
 from typing import Optional
 
-import requests
 from notion_client import Client
 
 # 配置
