@@ -47,15 +47,27 @@ class NotionSleepClient:
 
     def _format_date(self, date_str: str) -> str:
         """
-        将 YYYYMMDD 格式转换为 YYYY-MM-DD 格式
-
+        确保日期为 YYYY-MM-DD 格式
+        
         Args:
-            date_str: YYYYMMDD 格式的日期字符串
+            date_str: YYYYMMDD 或 YYYY-MM-DD 格式的日期字符串
 
         Returns:
             YYYY-MM-DD 格式的日期字符串
         """
-        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        if not date_str:
+            return ""
+            
+        # 如果已经是 YYYY-MM-DD 格式，直接返回
+        if "-" in date_str and len(date_str) == 10:
+            return date_str
+            
+        # 如果是 YYYYMMDD 格式，进行格式化
+        if len(date_str) == 8 and "-" not in date_str:
+            return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+            
+        # 兜底返回原值
+        return date_str
 
     def _sleep_record_to_page(self, record: SleepRecord) -> NotionSleepPage:
         """
