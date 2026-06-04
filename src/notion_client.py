@@ -1,5 +1,6 @@
 """
 Notion API Client - 将睡眠数据写入 Notion 数据库
+支持 Notion API 2025-09-03 版本（data_source 架构）
 """
 
 import httpx
@@ -42,6 +43,7 @@ class NotionSleepClient:
         """
         self.token = token
         self.database_id = database_id
+        self.data_source_id: Optional[str] = None  # 延迟获取
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -52,6 +54,37 @@ class NotionSleepClient:
     async def close(self):
         """关闭 HTTP 客户端"""
         await self.client.aclose()
+
+    async def _ensure_data_source_id(self) -> str:
+        """
+        确保有有效的 data_source_id
+        Notion API 2025-09-03 版本需要使用 data_source_id 而不是 database_id
+
+        Returns:
+            data_source_id
+        """
+        if self.data_source_id:
+            return self.data_source_id
+
+        # 获取数据库信息，提取 data_source_id
+        url = f"{self.NOTION_API_BASE}/databases/{self.database_id}"
+        response = await self.client.get(url, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+
+        # 从响应中提取 data_source_id
+        # 新版本的 Notion API 会在 data_sources 字段中返回数据源列表
+        data_sources = data.get("data_sources", [])
+        if data_sources:
+            self.data_source_id = data_sources[0]["id"]
+            print(f"   📋 获取到 data_source_id: {self.data_source_id[:8]}...")
+            return self.data_source_id
+
+        # 如果没有 data_sources 字段，可能是因为数据库是旧版本
+        # 尝试使用 database_id 作为 data_source_id（向后兼容）
+        self.data_source_id = self.database_id
+        print(f"   📋 使用 database_id 作为 data_source_id（向后兼容）")
+        return self.data_source_id
 
     def _format_date(self, date_str: str) -> str:
         """
@@ -154,7 +187,11 @@ class NotionSleepClient:
         Returns:
             页面 ID，如果不存在返回 None
         """
-        url = f"{self.NOTION_API_BASE}/databases/{self.database_id}/query"
+        # 确保有 data_source_id
+        data_source_id = await self._ensure_data_source_id()
+
+        # 使用新的 data_source 端点
+        url = f"{self.NOTION_API_BASE}/data_sources/{data_source_id}/query"
         payload = {
             "filter": {
                 "property": "日期",
@@ -183,12 +220,15 @@ class NotionSleepClient:
         Returns:
             创建的页面 ID
         """
+        # 确保有 data_source_id
+        data_source_id = await self._ensure_data_source_id()
+
         page = self._sleep_record_to_page(record)
         properties = self._build_page_properties(page)
 
         url = f"{self.NOTION_API_BASE}/pages"
         payload = {
-            "parent": {"database_id": self.database_id},
+            "parent": {"data_source_id": data_source_id},
             "properties": properties,
         }
 
