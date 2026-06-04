@@ -88,13 +88,47 @@ def _mobile_encrypt(plaintext: str, app_key: str) -> str:
     return base64.b64encode(encrypted).decode("utf-8")
 
 
+def _detect_account_type(account: str) -> int:
+    """
+    检测账号类型
+
+    Args:
+        account: 账号（邮箱或手机号）
+
+    Returns:
+        accountType: 1=手机号, 2=邮箱
+    """
+    # 移除空格
+    account = account.strip()
+
+    # 如果包含 @ 符号，认为是邮箱
+    if "@" in account:
+        return 2
+
+    # 如果是纯数字（可能带 + 号），认为是手机号
+    if account.replace("+", "").replace("-", "").isdigit():
+        return 1
+
+    # 默认返回邮箱类型
+    return 2
+
+
 class CorosClient:
     """COROS API 客户端"""
 
-    def __init__(self, email: str, password: str, region: str = "asia"):
-        self.email = email
+    def __init__(self, account: str, password: str, region: str = "asia"):
+        """
+        初始化 COROS 客户端
+
+        Args:
+            account: COROS 账号（邮箱或手机号）
+            password: 密码
+            region: 区域（eu/us/asia/cn）
+        """
+        self.account = account.strip()
         self.password = password
         self.region = region.lower()
+        self.account_type = _detect_account_type(self.account)
 
         # 获取区域配置
         if self.region not in COROS_REGIONS:
@@ -110,6 +144,10 @@ class CorosClient:
         # HTTP 客户端
         self.client = httpx.AsyncClient(timeout=30.0)
 
+        # 输出账号类型信息
+        account_type_name = "手机号" if self.account_type == 1 else "邮箱"
+        print(f"   账号类型: {account_type_name}")
+
     async def close(self):
         """关闭 HTTP 客户端"""
         await self.client.aclose()
@@ -122,14 +160,14 @@ class CorosClient:
         # 生成随机 16 位 appKey
         app_key = str(random.randint(1_000_000_000_000_000, 9_999_999_999_999_999))
 
-        # 加密邮箱和密码
-        encrypted_email = _mobile_encrypt(self.email, app_key) + "\n"
+        # 加密账号和密码
+        encrypted_account = _mobile_encrypt(self.account, app_key) + "\n"
         encrypted_pwd = _mobile_encrypt(_md5(self.password), app_key) + "\n"
 
         # 构建请求体
         payload = {
-            "account": encrypted_email,
-            "accountType": 2,
+            "account": encrypted_account,
+            "accountType": self.account_type,  # 1=手机号, 2=邮箱
             "appKey": app_key,
             "clientType": 1,
             "hasHrCalibrated": 0,
@@ -162,7 +200,8 @@ class CorosClient:
 
         # 检查响应
         if data.get("result") != "0000":
-            raise ValueError(f"Mobile 登录失败: {data.get('message')}")
+            error_msg = data.get("message", "未知错误")
+            raise ValueError(f"Mobile 登录失败: {error_msg}")
 
         # 保存 token 和 payload（用于刷新）
         self.mobile_token = data["data"]["accessToken"]

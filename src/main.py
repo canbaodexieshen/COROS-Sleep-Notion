@@ -24,8 +24,11 @@ def load_config() -> dict:
     # 加载 .env 文件（本地开发时使用）
     load_dotenv()
 
+    # 支持 COROS_ACCOUNT 或 COROS_EMAIL（兼容旧配置）
+    coros_account = os.getenv("COROS_ACCOUNT") or os.getenv("COROS_EMAIL")
+
     config = {
-        "coros_email": os.getenv("COROS_EMAIL"),
+        "coros_account": coros_account,
         "coros_password": os.getenv("COROS_PASSWORD"),
         "coros_region": os.getenv("COROS_REGION", "asia"),
         "notion_token": os.getenv("NOTION_TOKEN"),
@@ -58,7 +61,7 @@ async def sync_sleep_data(config: dict) -> dict:
 
     # 初始化客户端
     coros_client = CorosClient(
-        email=config["coros_email"],
+        account=config["coros_account"],
         password=config["coros_password"],
         region=config["coros_region"],
     )
