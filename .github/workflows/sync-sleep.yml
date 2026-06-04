@@ -2,7 +2,8 @@ name: Sync COROS Sleep Data to Notion
 
 on:
   schedule:
-
+    # 每天北京时间 8:00 运行（UTC 0:00）
+    - cron: '0 0 * * *'
   workflow_dispatch:
     # 支持手动触发
     inputs:
@@ -33,9 +34,11 @@ jobs:
 
       - name: Run sync script
         env:
-          COROS_ACCOUNT: ${{ secrets.COROS_ACCOUNT }}
-          COROS_PASSWORD: ${{ secrets.COROS_PASSWORD }}
+          COROS_ACCESS_TOKEN: ${{ secrets.COROS_ACCESS_TOKEN }}
+          COROS_REFRESH_TOKEN: ${{ secrets.COROS_REFRESH_TOKEN }}
+          COROS_CLIENT_ID: ${{ secrets.COROS_CLIENT_ID }}
           COROS_REGION: ${{ secrets.COROS_REGION }}
+          COROS_EXPIRES_AT: ${{ secrets.COROS_EXPIRES_AT }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           SYNC_DAYS: ${{ github.event.inputs.sync_days || '7' }}
