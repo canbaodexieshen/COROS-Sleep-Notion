@@ -6,6 +6,7 @@ COROS API Client - 使用 COROS 官方 MCP 服务获取睡眠数据
 
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -35,6 +36,8 @@ class SleepRecord(BaseModel):
     deep_pct: Optional[float] = None             # 深睡百分比
     light_pct: Optional[float] = None            # 浅睡百分比
     rem_pct: Optional[float] = None              # REM 百分比
+    awake_pct: Optional[float] = None            # 清醒百分比
+    awake_count: Optional[int] = None            # 清醒次数
 
 
 # COROS MCP 配置
@@ -53,6 +56,33 @@ COROS_MCP_CONFIGS = {
     },
 }
 CLIENT_ID = "ccd9bd8c-6504-4b83-80ab-edad29e075cc"
+
+
+def _parse_duration_str(duration_str: str) -> int:
+    """
+    解析时长字符串（如 "7h 50min"、"6h 48min"、"490 min"）为分钟数
+    """
+    if not duration_str:
+        return 0
+
+    # 格式: "Xh Ymin" 或 "X hour Y min"
+    match = re.search(r'(\d+)\s*h(?:our)?s?\s*(\d+)?\s*min?', duration_str, re.IGNORECASE)
+    if match:
+        hours = int(match.group(1))
+        minutes = int(match.group(2) or 0)
+        return hours * 60 + minutes
+
+    # 格式: "X min"
+    match = re.search(r'(\d+)\s*min', duration_str, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+
+    # 格式: 纯数字（默认分钟）
+    match = re.search(r'^(\d+)$', duration_str.strip())
+    if match:
+        return int(match.group(1))
+
+    return 0
 
 
 class CorosClient:
@@ -276,141 +306,108 @@ class CorosClient:
             print(f"   ⚠️  未获取到睡眠数据")
             return sleep_records
 
-        # 提取 JSON 数据
+        # 提取文本数据并解析
         for content in content_list:
             if content.get("type") == "text":
-                try:
-                    data = json.loads(content["text"])
-                    if isinstance(data, list):
-                        for item in data:
-                            record = self._parse_sleep_record(item)
-                            if record:
-                                sleep_records.append(record)
-                    elif isinstance(data, dict):
-                        # 尝试不同的数据结构
-                        sleep_data = data.get("sleepData") or data.get("data") or [data]
-                        if isinstance(sleep_data, list):
-                            for item in sleep_data:
-                                record = self._parse_sleep_record(item)
-                                if record:
-                                    sleep_records.append(record)
-                except json.JSONDecodeError:
-                    continue
+                text = content.get("text", "")
+                records = self._parse_sleep_text(text)
+                sleep_records.extend(records)
 
         return sleep_records
 
-    def _parse_sleep_record(self, data: dict) -> Optional[SleepRecord]:
-        """解析单条睡眠记录"""
+    def _parse_sleep_text(self, text: str) -> list[SleepRecord]:
+        """
+        解析 MCP 返回的睡眠数据文本
+
+        文本格式示例：
+        Sleep Data
+        ========================
+
+        2026-05-28
+        Sleep Score: 93
+        Main Sleep: 7h 50min
+        Deep Sleep Ratio: 26%
+        Light Sleep Ratio: 61%
+        REM Ratio: 12%
+        Awake Ratio: 1%
+        Awake Time: 7 min
+        Awake Count (>5 min): 0
+        Main Sleep Window: 01:25 - 09:22
+        Naps Total: 0 min
+        """
+        records = []
+
+        # 分割每个日期的数据块
+        # 按日期行分割（格式：YYYY-MM-DD）
+        blocks = re.split(r'\n\s*(?=\d{4}-\d{2}-\d{2}\s*\n)', text)
+
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+
+            record = self._parse_sleep_block(block)
+            if record:
+                records.append(record)
+
+        return records
+
+    def _parse_sleep_block(self, block: str) -> Optional[SleepRecord]:
+        """解析单个睡眠数据块"""
         try:
-            # 尝试不同的字段名
-            date = (
-                data.get("date")
-                or data.get("happenDay")
-                or data.get("sleepDate")
-                or data.get("startDate")
-            )
-            if not date:
+            # 提取日期
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', block)
+            if not date_match:
                 return None
+            date = date_match.group(1)
 
-            # 格式化日期
-            if isinstance(date, str) and len(date) == 8:
-                # YYYYMMDD -> YYYY-MM-DD
-                date = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
-            elif isinstance(date, str) and len(date) == 10:
-                # YYYY-MM-DD 格式，保持不变
-                pass
-            elif isinstance(date, int):
-                # YYYYMMDD 整数
-                date_str = str(date)
-                date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+            # 提取睡眠评分
+            score_match = re.search(r'Sleep Score:\s*(\d+)', block)
+            quality_score = int(score_match.group(1)) if score_match else None
 
-            # 获取睡眠时长（分钟）
-            total_minutes = (
-                data.get("totalSleepTime")
-                or data.get("total_sleep_time")
-                or data.get("totalDurationMinutes")
-                or data.get("sleepDuration")
-                or data.get("duration")
-            )
+            # 提取主要睡眠时长
+            sleep_match = re.search(r'Main Sleep:\s*(.+?)(?:\n|$)', block)
+            total_minutes = _parse_duration_str(sleep_match.group(1)) if sleep_match else None
 
-            # 获取睡眠阶段
-            phases = data.get("phases") or data.get("sleepPhases") or data.get("stageData") or {}
+            # 提取深度睡眠比例
+            deep_match = re.search(r'Deep Sleep Ratio:\s*(\d+)%', block)
+            deep_pct = float(deep_match.group(1)) if deep_match else None
 
-            deep_minutes = (
-                phases.get("deepMinutes")
-                or phases.get("deepTime")
-                or data.get("deepTime")
-                or data.get("deep_sleep_time")
-                or data.get("deep")
-            )
-            light_minutes = (
-                phases.get("lightMinutes")
-                or phases.get("lightTime")
-                or data.get("lightTime")
-                or data.get("light_sleep_time")
-                or data.get("light")
-            )
-            rem_minutes = (
-                phases.get("remMinutes")
-                or phases.get("eyeTime")
-                or data.get("eyeTime")
-                or data.get("rem_sleep_time")
-                or data.get("rem")
-            )
-            awake_minutes = (
-                phases.get("awakeMinutes")
-                or phases.get("wakeTime")
-                or data.get("wakeTime")
-                or data.get("awake_time")
-                or data.get("awake")
-            )
-            nap_minutes = (
-                phases.get("napMinutes")
-                or phases.get("shortSleepTime")
-                or data.get("shortSleepTime")
-                or data.get("nap_time")
-                or data.get("nap")
-            )
+            # 提取浅度睡眠比例
+            light_match = re.search(r'Light Sleep Ratio:\s*(\d+)%', block)
+            light_pct = float(light_match.group(1)) if light_match else None
 
-            # 获取心率
-            avg_hr = (
-                data.get("avgHeartRate")
-                or data.get("averageHeartRate")
-                or data.get("avg_hr")
-                or data.get("averageHr")
-            )
-            min_hr = (
-                data.get("minHeartRate")
-                or data.get("minimumHeartRate")
-                or data.get("min_hr")
-                or data.get("minHr")
-            )
-            max_hr = (
-                data.get("maxHeartRate")
-                or data.get("maximumHeartRate")
-                or data.get("max_hr")
-                or data.get("maxHr")
-            )
+            # 提取 REM 比例
+            rem_match = re.search(r'REM Ratio:\s*(\d+)%', block)
+            rem_pct = float(rem_match.group(1)) if rem_match else None
 
-            # 获取睡眠评分
-            quality_score = (
-                data.get("performance")
-                or data.get("qualityScore")
-                or data.get("quality_score")
-                or data.get("sleepScore")
-                or data.get("score")
-            )
-            if quality_score == -1:
-                quality_score = None
+            # 提取清醒比例
+            awake_pct_match = re.search(r'Awake Ratio:\s*(\d+)%', block)
+            awake_pct = float(awake_pct_match.group(1)) if awake_pct_match else None
 
-            # 获取百分比
-            deep_pct = data.get("deepSleepPercentage") or data.get("deep_pct") or data.get("deepPercent")
-            light_pct = data.get("lightSleepPercentage") or data.get("light_pct") or data.get("lightPercent")
-            rem_pct = data.get("remSleepPercentage") or data.get("rem_pct") or data.get("remPercent")
+            # 提取清醒时间
+            awake_time_match = re.search(r'Awake Time:\s*(\d+)\s*min', block)
+            awake_minutes = int(awake_time_match.group(1)) if awake_time_match else None
 
-            # 如果没有总时长但有阶段数据，计算总时长
-            if not total_minutes and (deep_minutes or light_minutes or rem_minutes):
-                total_minutes = sum(filter(None, [deep_minutes, light_minutes, rem_minutes, awake_minutes]))
+            # 提取清醒次数
+            awake_count_match = re.search(r'Awake Count.*?:\s*(\d+)', block)
+            awake_count = int(awake_count_match.group(1)) if awake_count_match else None
+
+            # 提取小睡时间
+            nap_match = re.search(r'Naps Total:\s*(\d+)\s*min', block)
+            nap_minutes = int(nap_match.group(1)) if nap_match else None
+
+            # 计算各阶段的分钟数（基于总时长和百分比）
+            deep_minutes = None
+            light_minutes = None
+            rem_minutes = None
+
+            if total_minutes and deep_pct is not None:
+                deep_minutes = int(total_minutes * deep_pct / 100)
+            if total_minutes and light_pct is not None:
+                light_minutes = int(total_minutes * light_pct / 100)
+            if total_minutes and rem_pct is not None:
+                rem_minutes = int(total_minutes * rem_pct / 100)
 
             if not total_minutes or total_minutes == 0:
                 return None
@@ -425,13 +422,12 @@ class CorosClient:
                     awake_minutes=awake_minutes,
                     nap_minutes=nap_minutes,
                 ),
-                avg_hr=avg_hr,
-                min_hr=min_hr,
-                max_hr=max_hr,
                 quality_score=quality_score,
                 deep_pct=deep_pct,
                 light_pct=light_pct,
                 rem_pct=rem_pct,
+                awake_pct=awake_pct,
+                awake_count=awake_count,
             )
 
         except Exception as e:
