@@ -309,7 +309,26 @@ class CorosClient:
         # 提取文本数据并解析
         for content in content_list:
             if content.get("type") == "text":
-                text = content.get("text", "")
+                raw_text = content.get("text", "")
+
+                # MCP 返回的文本是 JSON 转义的字符串，需要先解析
+                # 例如: "\"Sleep Data\\n========================\\n...\""
+                # 需要先用 json.loads 解析得到真正的文本
+                try:
+                    # 尝试用 json.loads 解析（处理转义字符）
+                    text = json.loads(raw_text) if isinstance(raw_text, str) else raw_text
+                except (json.JSONDecodeError, TypeError):
+                    # 如果解析失败，直接使用原始文本
+                    text = raw_text
+
+                # 如果文本被双引号包裹，去掉引号
+                if isinstance(text, str) and text.startswith('"') and text.endswith('"'):
+                    text = text[1:-1]
+
+                # 将转义的换行符替换为实际换行符
+                if isinstance(text, str):
+                    text = text.replace('\\n', '\n').replace('\\t', '\t')
+
                 records = self._parse_sleep_text(text)
                 sleep_records.extend(records)
 
