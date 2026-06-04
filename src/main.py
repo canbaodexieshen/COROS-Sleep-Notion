@@ -83,10 +83,10 @@ async def sync_sleep_data(config: dict) -> dict:
             print("⚠️  没有获取到睡眠数据，同步结束")
             return {"total": 0, "created": 0, "updated": 0, "failed": 0}
 
-        # 2. 同步到 Notion
+        # 2. 同步到 Notion（notion-client SDK 是同步调用）
         print()
         print("📤 正在同步到 Notion...")
-        results = await notion_client.sync_sleep_records(sleep_records)
+        results = notion_client.sync_sleep_records(sleep_records)
 
         # 3. 统计结果
         stats = {

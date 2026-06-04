@@ -177,36 +177,54 @@ class CorosClient:
             "skipValidation": False,
         }
 
-        # 请求头
+        # 请求头（与 coros-mcp 保持一致）
+        yfheader = json.dumps({
+            "appVersion": 1125917087236096,
+            "clientType": 1,
+            "language": "zh-CN" if self.region in ["cn", "asia"] else "en-US",
+            "mobileName": "sdk_gphone64_arm64,google,Google",
+            "releaseType": 1,
+            "systemVersion": "13",
+            "timezone": 8 if self.region in ["cn", "asia"] else 4,
+            "versionCode": "404080400",
+        }, separators=(",", ":"))
+
         headers = {
             "content-type": "application/json",
             "accept-encoding": "gzip",
             "user-agent": "okhttp/4.12.0",
             "request-time": str(int(time.time() * 1000)),
-            "yfheader": json.dumps({
-                "appVersion": 1125917087236096,
-                "clientType": 1,
-                "deviceType": "android",
-                "language": "en",
-                "region": "eu",
-            }),
+            "yfheader": yfheader,
         }
 
         # 发送登录请求
         url = f"{self.mobile_base_url}/coros/user/login"
+
+        # 调试信息
+        print(f"   🔐 正在登录 COROS Mobile API...")
+        print(f"      URL: {url}")
+        print(f"      账号类型: {'手机号' if self.account_type == 1 else '邮箱'}")
+        print(f"      区域: {self.region}")
+
         response = await self.client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
 
-        # 检查响应
+        # 详细的错误信息
         if data.get("result") != "0000":
             error_msg = data.get("message", "未知错误")
+            error_code = data.get("result", "unknown")
+            print(f"   ❌ 登录失败详情:")
+            print(f"      错误代码: {error_code}")
+            print(f"      错误信息: {error_msg}")
+            print(f"      完整响应: {data}")
             raise ValueError(f"Mobile 登录失败: {error_msg}")
 
         # 保存 token 和 payload（用于刷新）
         self.mobile_token = data["data"]["accessToken"]
         self.mobile_login_payload = payload
 
+        print(f"   ✅ 登录成功!")
         return self.mobile_token
 
     async def _ensure_mobile_token(self) -> str:
@@ -281,11 +299,22 @@ class CorosClient:
         for day_data in day_data_list:
             happen_day = day_data.get("happenDay")
             sleep_data = day_data.get("sleepData", {})
+
+            # 睡眠评分：尝试多个可能的字段名
             performance = day_data.get("performance", -1)
+            sleep_score = sleep_data.get("sleepScore", -1) if sleep_data else -1
+            # 使用第一个有效的评分
+            quality = performance if performance != -1 else (sleep_score if sleep_score != -1 else None)
 
             # 跳过没有睡眠数据的日期
             if not sleep_data or sleep_data.get("totalSleepTime", 0) == 0:
                 continue
+
+            # 打印第一条记录的原始数据用于调试
+            if len(sleep_records) == 0:
+                print(f"   🔍 原始数据字段: {list(day_data.keys())}")
+                print(f"   🔍 sleepData 字段: {list(sleep_data.keys()) if sleep_data else 'None'}")
+                print(f"   🔍 performance: {performance}, sleepScore: {sleep_score}")
 
             # 构建睡眠记录
             record = SleepRecord(
@@ -301,7 +330,7 @@ class CorosClient:
                 avg_hr=sleep_data.get("avgHeartRate"),
                 min_hr=sleep_data.get("minHeartRate"),
                 max_hr=sleep_data.get("maxHeartRate"),
-                quality_score=performance if performance != -1 else None,
+                quality_score=quality,
             )
             sleep_records.append(record)
 
