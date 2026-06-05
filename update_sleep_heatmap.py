@@ -13,7 +13,7 @@ v2 新增：
 import os
 import sys
 import requests
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional
 
 # 配置
@@ -218,6 +218,9 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     start_date = date(year, 1, 1)
     end_date = date(year, 12, 31)
 
+    # 日历周对齐：找到包含1月1日的那一周的周一作为起始列
+    first_monday = start_date - timedelta(days=start_date.weekday())
+
     # SVG 布局参数
     cell_size = 13
     cell_gap = 3
@@ -267,7 +270,7 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     last_month = -1
     while cur <= end_date:
         if cur.month != last_month:
-            week_num = (cur - start_date).days // 7
+            week_num = (cur - first_monday).days // 7
             x = left_margin + week_num * (cell_size + cell_gap)
             lines.append(
                 f'  <text x="{x}" y="{top_margin + 15}" font-size="12" fill="#656d76">'
@@ -291,7 +294,7 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     cur = start_date
     while cur <= end_date:
         day_of_week = cur.weekday()
-        week_num = (cur - start_date).days // 7
+        week_num = (cur - first_monday).days // 7
 
         x = left_margin + week_num * (cell_size + cell_gap)
         y = top_margin + month_label_height + day_of_week * (cell_size + cell_gap)
