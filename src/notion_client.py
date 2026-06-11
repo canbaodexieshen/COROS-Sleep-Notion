@@ -15,7 +15,7 @@ from .coros_client import SleepRecord
 
 
 class NotionSleepPage(BaseModel):
-    """Notion 睡眠数据页面结构"""
+    """Notion 睡眠 + 每日健康指标页面结构"""
     date: str                          # YYYY-MM-DD 格式
     total_sleep: Optional[int] = None  # 分钟
     deep_sleep: Optional[int] = None   # 分钟
@@ -23,10 +23,16 @@ class NotionSleepPage(BaseModel):
     rem_sleep: Optional[int] = None    # 分钟
     awake: Optional[int] = None        # 分钟
     nap: Optional[int] = None          # 分钟
-    avg_hr: Optional[int] = None       # bpm
+    avg_hr: Optional[int] = None       # 睡眠平均心率 bpm
     min_hr: Optional[int] = None       # bpm
     max_hr: Optional[int] = None       # bpm
     quality_score: Optional[int] = None
+    # --- 每日健康指标 ---
+    resting_hr: Optional[int] = None       # 静息心率 bpm
+    daily_avg_hr: Optional[int] = None     # 每日平均心率 bpm
+    hrv_avg: Optional[int] = None          # HRV 平均值 ms
+    hrv_result: Optional[str] = None       # HRV 评估结果
+    stress_avg: Optional[int] = None       # 每日平均压力
 
 
 class NotionSleepClient:
@@ -91,6 +97,11 @@ class NotionSleepClient:
             min_hr=record.min_hr,
             max_hr=record.max_hr,
             quality_score=record.quality_score,
+            resting_hr=record.resting_hr,
+            daily_avg_hr=record.daily_avg_hr,
+            hrv_avg=record.hrv_avg,
+            hrv_result=record.hrv_result,
+            stress_avg=record.stress_avg,
         )
 
     def _build_page_properties(self, page: NotionSleepPage) -> dict:
@@ -139,13 +150,38 @@ class NotionSleepClient:
             "睡眠评分": {
                 "number": page.quality_score,
             },
+            "静息心率": {
+                "number": page.resting_hr,
+            },
+            "每日平均心率": {
+                "number": page.daily_avg_hr,
+            },
+            "HRV": {
+                "number": page.hrv_avg,
+            },
+            "压力": {
+                "number": page.stress_avg,
+            },
         }
 
-        # 移除 None 值的属性
+        if page.hrv_result is not None:
+            properties["HRV等级"] = {
+                "select": {
+                    "name": page.hrv_result,
+                }
+            }
+
+        def _has_value(key: str, value: dict) -> bool:
+            if key == "日期":
+                return True
+            if "select" in value:
+                return True
+            return value.get("number") is not None
+
         return {
             key: value
             for key, value in properties.items()
-            if value.get("number") is not None or key == "日期"
+            if _has_value(key, value)
         }
 
     def find_page_by_date(self, date: str) -> Optional[str]:

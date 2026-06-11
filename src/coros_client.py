@@ -25,19 +25,50 @@ class SleepPhases(BaseModel):
 
 
 class SleepRecord(BaseModel):
-    """睡眠记录"""
+    """睡眠记录 + 每日健康指标"""
     date: str                                    # YYYY-MM-DD 格式
     total_duration_minutes: Optional[int] = None # 总睡眠时长（分钟）
     phases: Optional[SleepPhases] = None         # 各阶段分解
-    avg_hr: Optional[int] = None                 # 平均心率
-    min_hr: Optional[int] = None                 # 最小心率
-    max_hr: Optional[int] = None                 # 最大心率
+    avg_hr: Optional[int] = None                 # 睡眠平均心率
+    min_hr: Optional[int] = None                 # 睡眠最小心率
+    max_hr: Optional[int] = None                 # 睡眠最大心率
     quality_score: Optional[int] = None          # 睡眠评分
     deep_pct: Optional[float] = None             # 深睡百分比
     light_pct: Optional[float] = None            # 浅睡百分比
     rem_pct: Optional[float] = None              # REM 百分比
     awake_pct: Optional[float] = None            # 清醒百分比
     awake_count: Optional[int] = None            # 清醒次数
+    # --- 每日健康指标（来自 MCP 其他端点，按日期合并）---
+    resting_hr: Optional[int] = None             # 静息心率（bpm）
+    daily_avg_hr: Optional[int] = None            # 每日平均心率（bpm）
+    hrv_avg: Optional[int] = None                 # HRV 平均值（ms）
+    hrv_result: Optional[str] = None              # HRV 评估结果
+    stress_avg: Optional[int] = None              # 每日平均压力水平
+
+
+class RestingHRApiRecord(BaseModel):
+    """静息心率 API 记录"""
+    date: str
+    resting_hr: Optional[int] = None
+
+
+class AvgHRApiRecord(BaseModel):
+    """每日平均心率 API 记录"""
+    date: str
+    avg_hr: Optional[int] = None
+
+
+class HRVApiRecord(BaseModel):
+    """HRV API 记录"""
+    date: str
+    hrv_avg: Optional[int] = None
+    hrv_result: Optional[str] = None
+
+
+class StressApiRecord(BaseModel):
+    """压力水平 API 记录"""
+    date: str
+    stress_avg: Optional[int] = None
 
 
 # COROS MCP 配置
@@ -118,6 +149,7 @@ class CorosClient:
 
         self.session_id: Optional[str] = None
         self.client = httpx.AsyncClient(timeout=60.0)
+        self._request_id: int = 0
 
         # 存储刷新后的 token（用于返回给调用者）
         self._refreshed_token_data: Optional[dict] = None
@@ -235,8 +267,11 @@ class CorosClient:
     async def _call_tool(self, tool_name: str, arguments: dict) -> dict:
         """调用 MCP 工具"""
         token = await self._ensure_token()
+        # Always re-initialize session to avoid stale sessions
+        self.session_id = None
         session_id = await self._initialize_session()
 
+        self._request_id += 1
         response = await self.client.post(
             self.mcp_url,
             headers={
@@ -246,7 +281,7 @@ class CorosClient:
             },
             json={
                 "jsonrpc": "2.0",
-                "id": 2,
+                "id": self._request_id,
                 "method": "tools/call",
                 "params": {
                     "name": tool_name,
@@ -258,11 +293,22 @@ class CorosClient:
         # 解析响应（支持 SSE 格式）
         content_type = response.headers.get("content-type", "")
         if "text/event-stream" in content_type:
-            # SSE 格式，提取最后一个 data 行
+            # SSE 格式，提取 data 部分（可能跨多行）
             lines = response.text.split("\n")
-            data_lines = [line[5:].strip() for line in lines if line.startswith("data:")]
-            if data_lines:
-                payload = json.loads(data_lines[-1])
+            data_parts = []
+            in_data = False
+            for line in lines:
+                if line.startswith("data:"):
+                    in_data = True
+                    data_parts.append(line[5:])
+                elif in_data and line.strip() and not line.startswith("id:") and not line.startswith("event:"):
+                    data_parts.append(line)
+                elif line.startswith("id:") or line.startswith("event:"):
+                    in_data = False
+            
+            if data_parts:
+                data_text = "\n".join(data_parts).strip()
+                payload = json.loads(data_text)
             else:
                 raise ValueError("MCP 响应为空")
         else:
@@ -466,6 +512,222 @@ class CorosClient:
         end_date = datetime.now().strftime("%Y%m%d")
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
         return await self.get_sleep_data(start_date, end_date)
+
+    async def _fetch_mcp_text(self, tool_name: str, arguments: dict) -> str:
+        """
+        调用 MCP 工具并返回解析后的纯文本
+
+        Args:
+            tool_name: MCP 工具名称
+            arguments: 工具参数
+
+        Returns:
+            解析后的纯文本
+        """
+        result = await self._call_tool(tool_name, arguments)
+
+        content_list = result.get("content", [])
+        if not content_list:
+            return ""
+
+        text_parts = []
+        for content in content_list:
+            if content.get("type") == "text":
+                raw_text = content.get("text", "")
+                try:
+                    text = json.loads(raw_text) if isinstance(raw_text, str) else raw_text
+                except (json.JSONDecodeError, TypeError):
+                    text = raw_text
+                if isinstance(text, str) and text.startswith('"') and text.endswith('"'):
+                    text = text[1:-1]
+                if isinstance(text, str):
+                    text = text.replace('\\n', '\n').replace('\\t', '\t')
+                text_parts.append(text)
+
+        return "\n".join(text_parts)
+
+    async def get_resting_hr(self, days: int = 180) -> list[RestingHRApiRecord]:
+        """获取每日静息心率数据"""
+        print(f"   📡 获取每日静息心率...")
+        text = await self._fetch_mcp_text(
+            "queryRestingHeartRate",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+        if not text:
+            print(f"   ⚠️  未获取到静息心率数据")
+            return []
+        return self._parse_resting_hr_text(text)
+
+    def _parse_resting_hr_text(self, text: str) -> list[RestingHRApiRecord]:
+        """解析静息心率文本
+
+        支持格式:
+          2026-06-11: 55 bpm
+          2026-06-10: 52 bpm
+        """
+        records = []
+        blocks = re.split(r'\n\s*(?=\d{4}-\d{2}-\d{2}[:\s])', text)
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', block)
+            if not date_match:
+                continue
+            date = date_match.group(1)
+            # 匹配 "2026-06-11: 55 bpm" - 冒号后的数字
+            hr_match = re.search(r'\d{4}-\d{2}-\d{2}:\s*(\d+)\s*(?:bpm)?', block)
+            if hr_match:
+                records.append(RestingHRApiRecord(date=date, resting_hr=int(hr_match.group(1))))
+                continue
+            # 匹配 "Resting Heart Rate: 55"
+            hr_match2 = re.search(r'Resting\s*Heart\s*Rate:\s*(\d+)', block, re.IGNORECASE)
+            if hr_match2:
+                records.append(RestingHRApiRecord(date=date, resting_hr=int(hr_match2.group(1))))
+        if not records:
+            print(f"   ⚠️  静息心率文本解析结果为空，原始文本:\n{text[:500]}")
+        return records
+
+    async def get_avg_hr(self, days: int = 180) -> list[AvgHRApiRecord]:
+        """获取每日平均心率数据"""
+        print(f"   📡 获取每日平均心率...")
+        text = await self._fetch_mcp_text(
+            "queryAvgHeartRate",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+        if not text:
+            print(f"   ⚠️  未获取到平均心率数据")
+            return []
+        return self._parse_avg_hr_text(text)
+
+    def _parse_avg_hr_text(self, text: str) -> list[AvgHRApiRecord]:
+        """解析平均心率文本
+
+        支持格式:
+          2026-06-11: 66 bpm (Min: 47, Max: 98)
+        """
+        records = []
+        blocks = re.split(r'\n\s*(?=\d{4}-\d{2}-\d{2}[:\s])', text)
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', block)
+            if not date_match:
+                continue
+            date = date_match.group(1)
+            # 匹配 "2026-06-11: 66 bpm" - 冒号后的数字
+            hr_match = re.search(r'\d{4}-\d{2}-\d{2}:\s*(\d+)\s*(?:bpm)?', block)
+            if hr_match:
+                records.append(AvgHRApiRecord(date=date, avg_hr=int(hr_match.group(1))))
+                continue
+            # 匹配 "Avg HR: 68" 或 "Average Heart Rate: 68"
+            hr_match2 = re.search(r'(?:Avg\s*HR|Average\s*Heart\s*Rate):\s*(\d+)', block, re.IGNORECASE)
+            if hr_match2:
+                records.append(AvgHRApiRecord(date=date, avg_hr=int(hr_match2.group(1))))
+        if not records:
+            print(f"   ⚠️  平均心率文本解析结果为空，原始文本:\n{text[:500]}")
+        return records
+
+    async def get_hrv(self, days: int = 180) -> list[HRVApiRecord]:
+        """获取 HRV 心率变异性评估数据"""
+        print(f"   📡 获取 HRV 心率变异性评估...")
+        text = await self._fetch_mcp_text(
+            "queryHrvAssessment",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+        if not text:
+            print(f"   ⚠️  未获取到 HRV 数据")
+            return []
+        return self._parse_hrv_text(text)
+
+    def _parse_hrv_text(self, text: str) -> list[HRVApiRecord]:
+        """解析 HRV 文本
+
+        支持格式:
+          2026-06-11:
+            HRV Avg: 55 ms — Normal
+          2026-06-07:
+            HRV Avg: 73 ms — Above normal
+        """
+        records = []
+        # 按日期行分割（格式：YYYY-MM-DD:）
+        blocks = re.split(r'\n\s*(?=\d{4}-\d{2}-\d{2}[:\s])', text)
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', block)
+            if not date_match:
+                continue
+            date = date_match.group(1)
+            # 匹配 "HRV Avg: 55 ms" - 提取数值
+            hrv_match = re.search(r'HRV\s*Avg:\s*(\d+)\s*ms', block, re.IGNORECASE)
+            hrv_avg = int(hrv_match.group(1)) if hrv_match else None
+            # 提取评估结果：在 "ms" 后面的文本（Normal, Above normal, Below normal 等）
+            result_match = re.search(r'\d+\s*ms\s*[—–-]\s*(.+?)(?:\n|$)', block)
+            hrv_result = None
+            if result_match:
+                hrv_result = result_match.group(1).strip()
+            # 或者直接匹配常见结果
+            if not hrv_result:
+                common_match = re.search(r'(Normal|Above normal|Below normal|Low|High)', block, re.IGNORECASE)
+                if common_match:
+                    hrv_result = common_match.group(1)
+            # 或者括号内的文本
+            if not hrv_result:
+                paren_match = re.search(r'\(([^)]+)\)', block)
+                if paren_match:
+                    candidate = paren_match.group(1).strip()
+                    if not candidate.isdigit():
+                        hrv_result = candidate
+            if hrv_avg is not None or hrv_result is not None:
+                records.append(HRVApiRecord(date=date, hrv_avg=hrv_avg, hrv_result=hrv_result))
+        if not records:
+            print(f"   ⚠️  HRV 文本解析结果为空，原始文本:\n{text[:500]}")
+        return records
+
+    async def get_stress(self, days: int = 180) -> list[StressApiRecord]:
+        """获取每日平均压力水平数据"""
+        print(f"   📡 获取每日平均压力水平...")
+        text = await self._fetch_mcp_text(
+            "queryStressLevel",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+        if not text:
+            print(f"   ⚠️  未获取到压力数据")
+            return []
+        return self._parse_stress_text(text)
+
+    def _parse_stress_text(self, text: str) -> list[StressApiRecord]:
+        """解析压力水平文本
+
+        支持格式:
+          2026-06-11:
+          Average Stress: 28 (Low)
+        """
+        records = []
+        blocks = re.split(r'\n\s*(?=\d{4}-\d{2}-\d{2}[:\s])', text)
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', block)
+            if not date_match:
+                continue
+            date = date_match.group(1)
+            # 匹配 "Average Stress: 28" 或 "Stress: 28"
+            stress_match = re.search(r'(?:Average\s*)?Stress:\s*(\d+)', block, re.IGNORECASE)
+            if stress_match:
+                records.append(StressApiRecord(date=date, stress_avg=int(stress_match.group(1))))
+                continue
+            # 匹配 "2026-06-11: 35" - 冒号后的数字（仅当没有其他内容时）
+            stress_match2 = re.search(r'\d{4}-\d{2}-\d{2}:\s*(\d+)(?:\s*$|\s*[^:])', block)
+            if stress_match2:
+                records.append(StressApiRecord(date=date, stress_avg=int(stress_match2.group(1))))
+        if not records:
+            print(f"   ⚠️  压力文本解析结果为空，原始文本:\n{text[:500]}")
+        return records
 
     def get_refreshed_token_data(self) -> Optional[dict]:
         """获取刷新后的 token 数据（用于保存到 GitHub Secrets）"""
