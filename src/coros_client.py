@@ -605,7 +605,7 @@ class CorosClient:
             HRV 记录列表
         """
         result = await self._call_tool(
-            "queryHrvAssessment",
+            "querySleepHrv",
             {"days": days, "timezone": "Asia/Shanghai"},
         )
 
@@ -625,25 +625,21 @@ class CorosClient:
                 if isinstance(text, str):
                     text = text.replace('\\n', '\n')
 
-                # 解析格式（可能因 MCP 版本不同而异）
-                # 尝试多种格式
+                # 解析 querySleepHrv 返回的格式
+                # 格式示例：
+                # 2026-06-27:
+                #   HRV Avg: 68 ms — Normal
+                #   Normal Range: 42 - 70 ms
+                #   Baseline: 56 ms
                 current_date = None
                 hrv_avg = None
                 hrv_result = None
 
                 for line in text.split('\n'):
-                    # 格式1: "2026-06-27: HRV Avg: 42 ms"
-                    match1 = re.match(r'(\d{4}-\d{2}-\d{2}):\s+HRV Avg:\s+(\d+)\s+ms', line)
-                    if match1:
-                        records.append(HrvRecord(
-                            date=match1.group(1),
-                            hrv_avg=int(match1.group(2))
-                        ))
-                        continue
-
-                    # 格式2: 按日期块解析
-                    date_match = re.match(r'(\d{4}-\d{2}-\d{2})', line)
+                    # 匹配日期行
+                    date_match = re.match(r'\s*(\d{4}-\d{2}-\d{2}):', line)
                     if date_match:
+                        # 保存之前的记录
                         if current_date and hrv_avg is not None:
                             records.append(HrvRecord(
                                 date=current_date,
@@ -653,14 +649,19 @@ class CorosClient:
                         current_date = date_match.group(1)
                         hrv_avg = None
                         hrv_result = None
+                        continue
 
-                    hrv_match = re.search(r'HRV Avg:\s+(\d+)\s+ms', line)
+                    # 匹配 HRV Avg 行（带评估结果）
+                    hrv_match = re.search(r'HRV Avg:\s+(\d+)\s+ms\s*[—-]\s*(.+)', line)
                     if hrv_match:
                         hrv_avg = int(hrv_match.group(1))
+                        hrv_result = hrv_match.group(2).strip()
+                        continue
 
-                    result_match = re.search(r'Result:\s+(.+)', line)
-                    if result_match:
-                        hrv_result = result_match.group(1).strip()
+                    # 仅匹配 HRV Avg（无评估结果）
+                    hrv_avg_only = re.search(r'HRV Avg:\s+(\d+)\s+ms', line)
+                    if hrv_avg_only and hrv_avg is None:
+                        hrv_avg = int(hrv_avg_only.group(1))
 
                 # 处理最后一个记录
                 if current_date and hrv_avg is not None:
