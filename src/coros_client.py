@@ -38,6 +38,37 @@ class SleepRecord(BaseModel):
     rem_pct: Optional[float] = None              # REM 百分比
     awake_pct: Optional[float] = None            # 清醒百分比
     awake_count: Optional[int] = None            # 清醒次数
+    # --- 每日健康指标（由 main.py 合并填入） ---
+    resting_hr: Optional[int] = None             # 静息心率 bpm
+    daily_avg_hr: Optional[int] = None           # 每日平均心率 bpm
+    hrv_avg: Optional[int] = None                # HRV 平均值 ms
+    hrv_result: Optional[str] = None             # HRV 评估结果
+    stress_avg: Optional[int] = None             # 每日平均压力
+
+
+class RestingHrRecord(BaseModel):
+    """静息心率记录"""
+    date: str                        # YYYY-MM-DD 格式
+    resting_hr: Optional[int] = None # 静息心率 bpm
+
+
+class AvgHrRecord(BaseModel):
+    """平均心率记录"""
+    date: str                      # YYYY-MM-DD 格式
+    avg_hr: Optional[int] = None   # 平均心率 bpm
+
+
+class HrvRecord(BaseModel):
+    """HRV 记录"""
+    date: str                        # YYYY-MM-DD 格式
+    hrv_avg: Optional[int] = None    # HRV 平均值 ms
+    hrv_result: Optional[str] = None # HRV 评估结果
+
+
+class StressRecord(BaseModel):
+    """压力记录"""
+    date: str                        # YYYY-MM-DD 格式
+    stress_avg: Optional[int] = None # 平均压力值
 
 
 # COROS MCP 配置
@@ -478,3 +509,224 @@ class CorosClient:
     def get_refreshed_token_data(self) -> Optional[dict]:
         """获取刷新后的 token 数据（用于保存到 GitHub Secrets）"""
         return self._refreshed_token_data
+
+    async def get_resting_hr(self, days: int = 7) -> list[RestingHrRecord]:
+        """
+        获取静息心率数据
+
+        Args:
+            days: 天数，默认 7 天
+
+        Returns:
+            静息心率记录列表
+        """
+        result = await self._call_tool(
+            "queryRestingHeartRate",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+
+        records = []
+        content_list = result.get("content", [])
+        if not content_list:
+            return records
+
+        for content in content_list:
+            if content.get("type") == "text":
+                text = content.get("text", "")
+                try:
+                    text = json.loads(text) if isinstance(text, str) else text
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                if isinstance(text, str):
+                    text = text.replace('\\n', '\n')
+
+                # 解析格式: "2026-06-27: 53 bpm"
+                for line in text.split('\n'):
+                    match = re.match(r'(\d{4}-\d{2}-\d{2}):\s+(\d+)\s+bpm', line)
+                    if match:
+                        records.append(RestingHrRecord(
+                            date=match.group(1),
+                            resting_hr=int(match.group(2))
+                        ))
+
+        return records
+
+    async def get_avg_hr(self, days: int = 7) -> list[AvgHrRecord]:
+        """
+        获取平均心率数据
+
+        Args:
+            days: 天数，默认 7 天
+
+        Returns:
+            平均心率记录列表
+        """
+        result = await self._call_tool(
+            "queryAvgHeartRate",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+
+        records = []
+        content_list = result.get("content", [])
+        if not content_list:
+            return records
+
+        for content in content_list:
+            if content.get("type") == "text":
+                text = content.get("text", "")
+                try:
+                    text = json.loads(text) if isinstance(text, str) else text
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                if isinstance(text, str):
+                    text = text.replace('\\n', '\n')
+
+                # 解析格式: "2026-06-27: 53 bpm (Min: 44, Max: 72)"
+                for line in text.split('\n'):
+                    match = re.match(r'(\d{4}-\d{2}-\d{2}):\s+(\d+)\s+bpm', line)
+                    if match:
+                        records.append(AvgHrRecord(
+                            date=match.group(1),
+                            avg_hr=int(match.group(2))
+                        ))
+
+        return records
+
+    async def get_hrv(self, days: int = 7) -> list[HrvRecord]:
+        """
+        获取 HRV 数据
+
+        Args:
+            days: 天数，默认 7 天
+
+        Returns:
+            HRV 记录列表
+        """
+        result = await self._call_tool(
+            "queryHrvAssessment",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+
+        records = []
+        content_list = result.get("content", [])
+        if not content_list:
+            return records
+
+        for content in content_list:
+            if content.get("type") == "text":
+                text = content.get("text", "")
+                try:
+                    text = json.loads(text) if isinstance(text, str) else text
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                if isinstance(text, str):
+                    text = text.replace('\\n', '\n')
+
+                # 解析格式（可能因 MCP 版本不同而异）
+                # 尝试多种格式
+                current_date = None
+                hrv_avg = None
+                hrv_result = None
+
+                for line in text.split('\n'):
+                    # 格式1: "2026-06-27: HRV Avg: 42 ms"
+                    match1 = re.match(r'(\d{4}-\d{2}-\d{2}):\s+HRV Avg:\s+(\d+)\s+ms', line)
+                    if match1:
+                        records.append(HrvRecord(
+                            date=match1.group(1),
+                            hrv_avg=int(match1.group(2))
+                        ))
+                        continue
+
+                    # 格式2: 按日期块解析
+                    date_match = re.match(r'(\d{4}-\d{2}-\d{2})', line)
+                    if date_match:
+                        if current_date and hrv_avg is not None:
+                            records.append(HrvRecord(
+                                date=current_date,
+                                hrv_avg=hrv_avg,
+                                hrv_result=hrv_result
+                            ))
+                        current_date = date_match.group(1)
+                        hrv_avg = None
+                        hrv_result = None
+
+                    hrv_match = re.search(r'HRV Avg:\s+(\d+)\s+ms', line)
+                    if hrv_match:
+                        hrv_avg = int(hrv_match.group(1))
+
+                    result_match = re.search(r'Result:\s+(.+)', line)
+                    if result_match:
+                        hrv_result = result_match.group(1).strip()
+
+                # 处理最后一个记录
+                if current_date and hrv_avg is not None:
+                    records.append(HrvRecord(
+                        date=current_date,
+                        hrv_avg=hrv_avg,
+                        hrv_result=hrv_result
+                    ))
+
+        return records
+
+    async def get_stress(self, days: int = 7) -> list[StressRecord]:
+        """
+        获取压力数据
+
+        Args:
+            days: 天数，默认 7 天
+
+        Returns:
+            压力记录列表
+        """
+        result = await self._call_tool(
+            "queryStressLevel",
+            {"days": days, "timezone": "Asia/Shanghai"},
+        )
+
+        records = []
+        content_list = result.get("content", [])
+        if not content_list:
+            return records
+
+        for content in content_list:
+            if content.get("type") == "text":
+                text = content.get("text", "")
+                try:
+                    text = json.loads(text) if isinstance(text, str) else text
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                if isinstance(text, str):
+                    text = text.replace('\\n', '\n')
+
+                # 解析格式: "2026-06-27:\nAverage Stress: 13 (Relaxed)"
+                current_date = None
+                stress_avg = None
+
+                for line in text.split('\n'):
+                    date_match = re.match(r'(\d{4}-\d{2}-\d{2}):', line)
+                    if date_match:
+                        if current_date and stress_avg is not None:
+                            records.append(StressRecord(
+                                date=current_date,
+                                stress_avg=stress_avg
+                            ))
+                        current_date = date_match.group(1)
+                        stress_avg = None
+
+                    stress_match = re.search(r'Average Stress:\s+(\d+)', line)
+                    if stress_match:
+                        stress_avg = int(stress_match.group(1))
+
+                # 处理最后一个记录
+                if current_date and stress_avg is not None:
+                    records.append(StressRecord(
+                        date=current_date,
+                        stress_avg=stress_avg
+                    ))
+
+        return records
