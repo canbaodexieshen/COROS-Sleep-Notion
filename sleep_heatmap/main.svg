@@ -6,7 +6,7 @@
 
   <text x="40" y="16" font-size="15" fill="#24292f" font-weight="bold">睡眠评分热力图</text>
 
-  <text x="40" y="36" font-size="12" fill="#656d76">2026: 122天优秀 · 51天良好 · 7天较差</text>
+  <text x="40" y="36" font-size="12" fill="#656d76">2026: 122天优秀 · 52天良好 · 7天较差</text>
 
   <text x="40" y="60" font-size="12" fill="#656d76">Jan</text>
   <text x="104" y="60" font-size="12" fill="#656d76">Feb</text>
@@ -208,7 +208,7 @@
   <rect x="440" y="65" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-06-29" data-score="97" data-duration="517" data-nap=""><title>2026-06-29 | 97分 | 8h 37min</title></rect>
   <rect x="440" y="81" width="13" height="13" rx="2" ry="2" fill="#ffdd00" data-date="2026-06-30" data-score="63" data-duration="418" data-nap=""><title>2026-06-30 | 63分 | 6h 58min</title></rect>
   <rect x="440" y="97" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-07-01" data-score="99" data-duration="491" data-nap=""><title>2026-07-01 | 99分 | 8h 11min</title></rect>
-  <rect x="456" y="113" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-07-02" data-score="" data-duration="" data-nap=""><title>2026-07-02 | 无评分 | N/A</title></rect>
+  <rect x="456" y="113" width="13" height="13" rx="2" ry="2" fill="#ffdd00" data-date="2026-07-02" data-score="75" data-duration="447" data-nap=""><title>2026-07-02 | 75分 | 7h 27min</title></rect>
   <rect x="456" y="129" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-07-03" data-score="" data-duration="" data-nap=""><title>2026-07-03 | 无评分 | N/A</title></rect>
   <rect x="456" y="145" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-07-04" data-score="" data-duration="" data-nap=""><title>2026-07-04 | 无评分 | N/A</title></rect>
   <rect x="456" y="161" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-07-05" data-score="" data-duration="" data-nap=""><title>2026-07-05 | 无评分 | N/A</title></rect>
