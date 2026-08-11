@@ -6,7 +6,7 @@
 
   <text x="40" y="16" font-size="15" fill="#24292f" font-weight="bold">睡眠评分热力图</text>
 
-  <text x="40" y="36" font-size="12" fill="#656d76">2026: 149天优秀 · 58天良好 · 11天较差</text>
+  <text x="40" y="36" font-size="12" fill="#656d76">2026: 149天优秀 · 59天良好 · 11天较差</text>
 
   <text x="40" y="60" font-size="12" fill="#656d76">Jan</text>
   <text x="104" y="60" font-size="12" fill="#656d76">Feb</text>
@@ -247,8 +247,8 @@
   <rect x="536" y="129" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-08-07" data-score="96" data-duration="426" data-nap=""><title>2026-08-07 | 96分 | 7h 6min</title></rect>
   <rect x="536" y="145" width="13" height="13" rx="2" ry="2" fill="#fa2f47" data-date="2026-08-08" data-score="41" data-duration="503" data-nap=""><title>2026-08-08 | 41分 | 8h 23min</title></rect>
   <rect x="536" y="161" width="13" height="13" rx="2" ry="2" fill="#ffdd00" data-date="2026-08-09" data-score="75" data-duration="646" data-nap=""><title>2026-08-09 | 75分 | 10h 46min</title></rect>
-  <rect x="536" y="65" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-08-10" data-score="92" data-duration="499" data-nap=""><title>2026-08-10 | 92分 | 8h 19min</title></rect>
-  <rect x="536" y="81" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-08-11" data-score="" data-duration="" data-nap=""><title>2026-08-11 | 无评分 | N/A</title></rect>
+  <rect x="536" y="65" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-08-10" data-score="89" data-duration="499" data-nap=""><title>2026-08-10 | 89分 | 8h 19min</title></rect>
+  <rect x="536" y="81" width="13" height="13" rx="2" ry="2" fill="#ffdd00" data-date="2026-08-11" data-score="84" data-duration="493" data-nap=""><title>2026-08-11 | 84分 | 8h 13min</title></rect>
   <rect x="536" y="97" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-08-12" data-score="" data-duration="" data-nap=""><title>2026-08-12 | 无评分 | N/A</title></rect>
   <rect x="552" y="113" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-08-13" data-score="" data-duration="" data-nap=""><title>2026-08-13 | 无评分 | N/A</title></rect>
   <rect x="552" y="129" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-08-14" data-score="" data-duration="" data-nap=""><title>2026-08-14 | 无评分 | N/A</title></rect>
