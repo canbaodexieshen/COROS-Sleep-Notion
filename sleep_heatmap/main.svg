@@ -262,7 +262,7 @@
   <rect x="568" y="145" width="13" height="13" rx="2" ry="2" fill="#fa2f47" data-date="2026-08-22" data-score="34" data-duration="206" data-nap=""><title>2026-08-22 | 34分 | 3h 26min</title></rect>
   <rect x="568" y="161" width="13" height="13" rx="2" ry="2" fill="#fa2f47" data-date="2026-08-23" data-score="47" data-duration="224" data-nap=""><title>2026-08-23 | 47分 | 3h 44min</title></rect>
   <rect x="568" y="65" width="13" height="13" rx="2" ry="2" fill="#fa2f47" data-date="2026-08-24" data-score="42" data-duration="210" data-nap=""><title>2026-08-24 | 42分 | 3h 30min</title></rect>
-  <rect x="568" y="81" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-08-25" data-score="90" data-duration="391" data-nap=""><title>2026-08-25 | 90分 | 6h 31min</title></rect>
+  <rect x="568" y="81" width="13" height="13" rx="2" ry="2" fill="#1ed760" stroke="#90b1fb" stroke-width="1.5" data-date="2026-08-25" data-score="91" data-duration="391" data-nap="24"><title>2026-08-25 | 91分 | 6h 31min + 午睡24min</title></rect>
   <rect x="568" y="97" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-08-26" data-score="" data-duration="" data-nap=""><title>2026-08-26 | 无评分 | N/A</title></rect>
   <rect x="584" y="113" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-08-27" data-score="" data-duration="" data-nap=""><title>2026-08-27 | 无评分 | N/A</title></rect>
   <rect x="584" y="129" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-08-28" data-score="" data-duration="" data-nap=""><title>2026-08-28 | 无评分 | N/A</title></rect>
