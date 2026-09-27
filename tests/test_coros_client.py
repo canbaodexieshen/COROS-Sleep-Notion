@@ -12,6 +12,7 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.requests = []
         self.redirect_requests = []
+        self.available_sleep_tool = "querySleepOverview"
 
         async def handler(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
@@ -31,11 +32,10 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
                     "serverInfo": {"name": "coros", "version": "test"},
                 }
             elif method == "tools/list":
-                # 用 snake_case 验证客户端会以实际发现的工具名调用。
                 result = {
                     "tools": [
                         {
-                            "name": "query_sleep_data",
+                            "name": self.available_sleep_tool,
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
@@ -57,7 +57,9 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
                     headers={"content-type": "text/event-stream"},
                 )
             elif method == "tools/call":
-                self.assertEqual(body["params"]["name"], "query_sleep_data")
+                self.assertEqual(
+                    body["params"]["name"], self.available_sleep_tool
+                )
                 self.assertEqual(
                     body["params"]["arguments"],
                     {"days": 3, "timezone": "Asia/Shanghai"},
@@ -67,7 +69,7 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
                         {
                             "type": "text",
                             "text": (
-                                "Sleep Data\n========================\n\n"
+                                "Sleep Overview\n========================\n\n"
                                 "2026-09-25\nSleep Score: 88\n"
                                 "Main Sleep: 7h 30min\nDeep Sleep Ratio: 20%\n"
                                 "Light Sleep Ratio: 60%\nREM Ratio: 20%\n"
@@ -120,6 +122,18 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             all(item[0] == "https://mcpcn.coros.com/mcp" for item in self.requests)
         )
+
+    async def test_falls_back_to_legacy_sleep_tool_name(self):
+        self.available_sleep_tool = "querySleepData"
+
+        with patch("builtins.print"):
+            records = await self.client.get_sleep_data("20260925", "20260927")
+
+        self.assertEqual(len(records), 1)
+        tool_call = next(
+            body for _, body in self.requests if body["method"] == "tools/call"
+        )
+        self.assertEqual(tool_call["params"]["name"], "querySleepData")
 
 
 if __name__ == "__main__":

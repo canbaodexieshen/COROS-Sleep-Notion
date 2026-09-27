@@ -91,6 +91,13 @@ COROS_MCP_CONFIGS = {
 }
 CLIENT_ID = "ccd9bd8c-6504-4b83-80ab-edad29e075cc"
 
+# COROS 的不同区域/发布批次可能在新旧工具名之间切换。
+# tools/list 仍是最终依据，这里只定义语义等价的兼容名称。
+TOOL_ALIASES = {
+    "querySleepOverview": ("querySleepData",),
+    "querySleepData": ("querySleepOverview",),
+}
+
 
 def _parse_duration_str(duration_str: str) -> int:
     """
@@ -364,12 +371,17 @@ class CorosClient:
 
     async def _resolve_tool(self, requested_name: str) -> tuple[str, dict]:
         tools = await self._list_tools()
-        if requested_name in tools:
-            return requested_name, tools[requested_name]
+        candidates = (requested_name, *TOOL_ALIASES.get(requested_name, ()))
 
-        normalized = self._normalized_name(requested_name)
+        for candidate in candidates:
+            if candidate in tools:
+                return candidate, tools[candidate]
+
+        normalized_candidates = {
+            self._normalized_name(candidate) for candidate in candidates
+        }
         for actual_name, definition in tools.items():
-            if self._normalized_name(actual_name) == normalized:
+            if self._normalized_name(actual_name) in normalized_candidates:
                 return actual_name, definition
 
         available = ", ".join(sorted(tools)) or "(空)"
@@ -442,9 +454,10 @@ class CorosClient:
         end = datetime.strptime(end_date, "%Y%m%d")
         days = max(1, (end - start).days + 1)
 
-        # tools/list 会在调用前核对工具名和当前参数 schema。
+        # 新版服务名为 querySleepOverview，老区域仍可能返回
+        # querySleepData；_resolve_tool 会根据 tools/list 自动选择。
         result = await self._call_tool(
-            "querySleepData",
+            "querySleepOverview",
             {
                 "startDate": start_date,
                 "endDate": end_date,

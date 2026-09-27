@@ -196,6 +196,7 @@ python -m src.main
 
 客户端会优先连接 COROS 官方统一入口 `https://mcp.coros.com/mcp`，
 并在每次运行时通过 `tools/list` 以当前账号实际可见的工具名和参数为准。
+睡眠数据同时兼容新名 `querySleepOverview` 和旧名 `querySleepData`。
 如日志明确提示工具未暴露，请重新授权 COROS 并更新 GitHub Secrets 中的 Token；
 日志会列出服务端当时返回的可用工具，便于继续定位。
 
