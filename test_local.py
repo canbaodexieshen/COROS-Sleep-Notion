@@ -19,26 +19,26 @@ async def test_coros_connection():
     """测试 COROS 连接"""
     from src.coros_client import CorosClient
 
-    # 支持 COROS_ACCOUNT 或 COROS_EMAIL（兼容旧配置）
-    account = os.getenv("COROS_ACCOUNT") or os.getenv("COROS_EMAIL")
-    password = os.getenv("COROS_PASSWORD")
-    region = os.getenv("COROS_REGION", "asia")
+    access_token = os.getenv("COROS_ACCESS_TOKEN")
+    refresh_token = os.getenv("COROS_REFRESH_TOKEN")
+    client_id = os.getenv("COROS_CLIENT_ID", "ccd9bd8c-6504-4b83-80ab-edad29e075cc")
+    region = os.getenv("COROS_REGION", "cn")
+    expires_at = int(os.getenv("COROS_EXPIRES_AT", "0")) or None
 
-    if not account or not password:
-        print("❌ 缺少 COROS_ACCOUNT 或 COROS_PASSWORD 环境变量")
+    if not access_token or not refresh_token:
+        print("❌ 缺少 COROS_ACCESS_TOKEN 或 COROS_REFRESH_TOKEN 环境变量")
         return False
 
-    print(f"🔐 正在登录 COROS...")
-    # 隐藏账号信息（保留前3位和后4位）
-    if "@" in account:
-        # 邮箱
-        print(f"   邮箱: {account[:3]}***{account[-4:]}")
-    else:
-        # 手机号
-        print(f"   手机号: {account[:3]}****{account[-4:]}")
+    print(f"🔐 正在连接 COROS MCP...")
     print(f"   区域: {region}")
 
-    client = CorosClient(account=account, password=password, region=region)
+    client = CorosClient(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        region=region,
+        expires_at=expires_at,
+    )
 
     try:
         # 尝试获取最近 3 天的数据

@@ -9,6 +9,16 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --heat-excellent: #1ed760;
+            --heat-good: #ffdd00;
+            --heat-poor: #fa2f47;
+            --heat-empty: #e8eaed;
+            --heat-nap: #7295e8;
+            --heat-text: #24292f;
+            --heat-muted: #656d76;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -88,7 +98,7 @@
             gap: 8px;
             margin-left: 10px;
             font-size: 11px;
-            color: #888;
+            color: var(--heat-muted);
         }
 
         .legend-item {
@@ -103,8 +113,12 @@
             border-radius: 2px;
         }
 
-        body.dark-mode .legend {
-            color: #888;
+        .legend-box.poor { background: var(--heat-poor); }
+        .legend-box.good { background: var(--heat-good); }
+        .legend-box.excellent { background: var(--heat-excellent); }
+        .legend-box.nap {
+            background: transparent;
+            border: 2px solid var(--heat-nap);
         }
 
         .loading-text {
@@ -117,31 +131,44 @@
 
         /* ==================== 智能深色模式 ==================== */
         body.dark-mode {
-            background-color: #191919;
+            --heat-excellent: #3f9b72;
+            --heat-good: #b58a3c;
+            --heat-poor: #b65f6b;
+            --heat-empty: #2b3037;
+            --heat-nap: #789be6;
+            --heat-text: #d8dee7;
+            --heat-muted: #929cab;
+            background-color: #17191d;
         }
 
         body.dark-mode .controls-wrapper {
-            background: rgba(35, 35, 35, 0.9);
+            background: rgba(34, 37, 43, 0.92);
             border-color: rgba(255, 255, 255, 0.1);
             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
         }
 
         body.dark-mode select,
         body.dark-mode button {
-            background-color: #2c2c2c;
-            color: #ccc;
-            border-color: #444;
+            background-color: #2a2e35;
+            color: #d1d7e0;
+            border-color: #454b55;
         }
 
         body.dark-mode select:hover,
         body.dark-mode button:hover {
-            background-color: #383838;
+            background-color: #343942;
         }
 
-        /* 智能反色滤镜 */
-        body.dark-mode svg {
-            filter: invert(0.9) hue-rotate(180deg) brightness(1.1);
-        }
+        /* 新 SVG 通过 CSS 变量换色；下面的规则同时兼容旧年度存档。 */
+        body.dark-mode svg[style] { background-color: transparent !important; }
+        body.dark-mode svg rect[fill="#1ed760"] { fill: var(--heat-excellent); }
+        body.dark-mode svg rect[fill="#ffdd00"] { fill: var(--heat-good); }
+        body.dark-mode svg rect[fill="#fa2f47"] { fill: var(--heat-poor); }
+        body.dark-mode svg rect[fill="#E8EAED"],
+        body.dark-mode svg rect[fill="#e8eaed"] { fill: var(--heat-empty); }
+        body.dark-mode svg rect[stroke="#90b1fb"] { stroke: var(--heat-nap); }
+        body.dark-mode svg text[fill="#24292f"] { fill: var(--heat-text); }
+        body.dark-mode svg text[fill="#656d76"] { fill: var(--heat-muted); }
     </style>
 </head>
 <body>
@@ -152,11 +179,11 @@
             </select>
             <button id="theme-toggle" title="切换深色/浅色模式">🌙</button>
             <div class="legend">
-                <div class="legend-item"><div class="legend-box" style="background:#fa2f47;"></div><span>&lt;60分</span></div>
-                <div class="legend-item"><div class="legend-box" style="background:#ffdd00;"></div><span>60-85分</span></div>
-                <div class="legend-item"><div class="legend-box" style="background:#1ed760;"></div><span>&gt;85分</span></div>
+                <div class="legend-item"><div class="legend-box poor"></div><span>&lt;60分</span></div>
+                <div class="legend-item"><div class="legend-box good"></div><span>60-85分</span></div>
+                <div class="legend-item"><div class="legend-box excellent"></div><span>&gt;85分</span></div>
                 <div class="legend-item">
-                    <div class="legend-box" style="background:transparent;border:2px solid #90b1fb;"></div>
+                    <div class="legend-box nap"></div>
                     <span>含午睡</span>
                 </div>
             </div>

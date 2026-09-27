@@ -199,7 +199,7 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     """
     生成 GitHub 贡献图风格的睡眠热力图 SVG
 
-    布局：标题 + 副标题统计 + 53周 x 7天方块
+    布局：标题 + 副标题统计 + 按自然周对齐的 7 天方块
     午睡不为 0 的日期显示浅蓝色边框
     """
     log(f"[STEP 2] 生成 {year} 年热力图 SVG...")
@@ -226,7 +226,14 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     subtitle_height = 20    # 副标题（统计摘要）
     top_margin = title_height + subtitle_height + 5
     month_label_height = 20
-    total_weeks = 53
+    # 一周从周一开始。1 月 1 日之前的空位也要计入列号，
+    # 否则年初第一个周一会被错误挤回第一列。
+    first_weekday = start_date.weekday()
+    total_days = (end_date - start_date).days + 1
+    total_weeks = (first_weekday + total_days + 6) // 7
+
+    def week_index(day: date) -> int:
+        return (first_weekday + (day - start_date).days) // 7
 
     total_width = left_margin + total_weeks * (cell_size + cell_gap) + 20
     total_height = top_margin + month_label_height + 7 * (cell_size + cell_gap) + 20
@@ -237,25 +244,34 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'width="{total_width}" height="{total_height}" '
         f'viewBox="0 0 {total_width} {total_height}" '
-        f'style="background-color:white;">'
+        f'class="heatmap-svg" role="img" aria-label="{year} 年睡眠评分热力图">'
     )
     lines.append("  <style>")
     lines.append(
         "    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }"
+    )
+    lines.append("    .heatmap-title { fill: var(--heat-text, #24292f); }")
+    lines.append("    .heatmap-label { fill: var(--heat-muted, #656d76); }")
+    for category, color in COLORS.items():
+        lines.append(
+            f"    .cell-{category} {{ fill: var(--heat-{category}, {color}); }}"
+        )
+    lines.append(
+        f"    .has-nap {{ stroke: var(--heat-nap, {NAP_BORDER_COLOR}); stroke-width: {NAP_STROKE_WIDTH}; }}"
     )
     lines.append("  </style>")
 
     # ===== 标题：睡眠评分热力图（与 calorie 项目 --me 参数效果一致）=====
     lines.append("")
     lines.append(
-        f'  <text x="{left_margin}" y="16" font-size="15" fill="#24292f" font-weight="bold">'
+        f'  <text class="heatmap-title" x="{left_margin}" y="16" font-size="15" font-weight="bold">'
         f"睡眠评分热力图</text>"
     )
 
     # 副标题：年份 + 各评分段统计
     lines.append("")
     lines.append(
-        f'  <text x="{left_margin}" y="{16 + subtitle_height}" font-size="12" fill="#656d76">'
+        f'  <text class="heatmap-label" x="{left_margin}" y="{16 + subtitle_height}" font-size="12">'
         f"{year}: {stats['excellent']}天优秀 · {stats['good']}天良好 · {stats['poor']}天较差"
         f"</text>"
     )
@@ -263,27 +279,19 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     # 月份标签
     lines.append("")
     months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    cur = start_date
-    last_month = -1
-    while cur <= end_date:
-        if cur.month != last_month:
-            week_num = (cur - start_date).days // 7
-            x = left_margin + week_num * (cell_size + cell_gap)
-            lines.append(
-                f'  <text x="{x}" y="{top_margin + 15}" font-size="12" fill="#656d76">'
-                f"{months[cur.month - 1]}</text>"
-            )
-            last_month = cur.month
-        days_to_next = 7 - cur.weekday()
-        if days_to_next == 7:
-            days_to_next = 7
-        cur = date.fromordinal(cur.toordinal() + days_to_next)
+    for month, label in enumerate(months, start=1):
+        month_start = date(year, month, 1)
+        x = left_margin + week_index(month_start) * (cell_size + cell_gap)
+        lines.append(
+            f'  <text class="heatmap-label" x="{x}" y="{top_margin + 15}" font-size="12">'
+            f"{label}</text>"
+        )
 
     # 星期标签（Mon, Wed, Fri）
     lines.append("")
     for i, label in enumerate(["Mon", "Wed", "Fri"]):
         y = top_margin + month_label_height + (i * 2 + 1) * (cell_size + cell_gap) + 10
-        lines.append(f'  <text x="5" y="{y}" font-size="10" fill="#656d76">{label}</text>')
+        lines.append(f'  <text class="heatmap-label" x="5" y="{y}" font-size="10">{label}</text>')
 
     # 热力图方块
     lines.append("")
@@ -291,7 +299,7 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
     cur = start_date
     while cur <= end_date:
         day_of_week = cur.weekday()
-        week_num = (cur - start_date).days // 7
+        week_num = week_index(cur)
 
         x = left_margin + week_num * (cell_size + cell_gap)
         y = top_margin + month_label_height + day_of_week * (cell_size + cell_gap)
@@ -309,9 +317,13 @@ def generate_heatmap_svg(year: int, data: dict) -> str:
         has_nap = nap is not None and nap > 0
 
         # 构建 rect 属性
-        rect_attrs = f'x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="2" ry="2" fill="{color}"'
+        classes = [f"cell-{category}"]
         if has_nap:
-            rect_attrs += f' stroke="{NAP_BORDER_COLOR}" stroke-width="{NAP_STROKE_WIDTH}"'
+            classes.append("has-nap")
+        rect_attrs = (
+            f'class="{" ".join(classes)}" x="{x}" y="{y}" '
+            f'width="{cell_size}" height="{cell_size}" rx="2" ry="2" fill="{color}"'
+        )
 
         # tooltip
         score_text = f"{score}分" if score is not None else "无评分"

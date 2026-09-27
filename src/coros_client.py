@@ -10,6 +10,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from pydantic import BaseModel
@@ -72,18 +73,20 @@ class StressRecord(BaseModel):
 
 
 # COROS MCP 配置
+# 官方开发文档将统一入口作为首选，区域入口仅用于回退。
+COROS_MCP_URL = "https://mcp.coros.com/mcp"
 COROS_MCP_CONFIGS = {
     "cn": {
         "issuer": "https://mcp.coros.com",
-        "mcp_url": "https://mcpcn.coros.com/mcp",
+        "regional_mcp_url": "https://mcpcn.coros.com/mcp",
     },
     "eu": {
         "issuer": "https://mcp.coros.com",
-        "mcp_url": "https://mcpeu.coros.com/mcp",
+        "regional_mcp_url": "https://mcpeu.coros.com/mcp",
     },
     "us": {
         "issuer": "https://mcp.coros.com",
-        "mcp_url": "https://mcpus.coros.com/mcp",
+        "regional_mcp_url": "https://mcpus.coros.com/mcp",
     },
 }
 CLIENT_ID = "ccd9bd8c-6504-4b83-80ab-edad29e075cc"
@@ -126,6 +129,7 @@ class CorosClient:
         client_id: str = CLIENT_ID,
         region: str = "cn",
         expires_at: Optional[int] = None,
+        mcp_url: Optional[str] = None,
     ):
         """
         初始化 COROS 客户端
@@ -145,10 +149,19 @@ class CorosClient:
 
         config = COROS_MCP_CONFIGS.get(self.region, COROS_MCP_CONFIGS["cn"])
         self.issuer = config["issuer"]
-        self.mcp_url = config["mcp_url"]
+        configured_mcp_url = mcp_url or os.getenv("COROS_MCP_URL")
+        self.mcp_url = configured_mcp_url or COROS_MCP_URL
+        self._mcp_urls = [self.mcp_url]
+        regional_mcp_url = config["regional_mcp_url"]
+        if not configured_mcp_url and regional_mcp_url != self.mcp_url:
+            self._mcp_urls.append(regional_mcp_url)
 
         self._initialized: bool = False
-        self.client = httpx.AsyncClient(timeout=60.0)
+        self._available_tools: Optional[dict[str, dict]] = None
+        self._rpc_id = 0
+        # COROS 统一入口会跨子域跳转。跳转由 _post_rpc 按白名单处理，
+        # 避免 HTTP 客户端跨主机时丢弃 Authorization 头。
+        self.client = httpx.AsyncClient(timeout=60.0, follow_redirects=False)
 
         # 存储刷新后的 token（用于返回给调用者）
         self._refreshed_token_data: Optional[dict] = None
@@ -224,49 +237,165 @@ class CorosClient:
             return
 
         token = await self._ensure_token()
+        errors = []
 
-        # 初始化连接（验证 MCP 服务可用）
-        response = await self.client.post(
-            self.mcp_url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json, text/event-stream",
-            },
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "coros-sleep-notion",
-                        "version": "1.0.0",
+        # 先用官方统一入口；如路由失败，再回退到账号所在区域。
+        for mcp_url in self._mcp_urls:
+            self.mcp_url = mcp_url
+            try:
+                payload = await self._post_rpc(
+                    "initialize",
+                    {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {
+                            "name": "coros-sleep-notion",
+                            "version": "1.1.0",
+                        },
                     },
-                },
-            },
-        )
+                    token,
+                )
+                if "error" in payload:
+                    raise ValueError(str(payload["error"]))
+                self._initialized = True
+                return
+            except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+                errors.append(f"{mcp_url}: {exc}")
 
-        # 检查响应状态
+        raise ValueError("初始化 COROS MCP 连接失败：" + " | ".join(errors))
+
+    async def _post_rpc(
+        self,
+        method: str,
+        params: dict,
+        token: str,
+    ) -> dict:
+        """发送 JSON-RPC 请求并兼容 COROS 返回的 JSON/SSE 两种格式。"""
+        self._rpc_id += 1
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "jsonrpc": "2.0",
+            "id": self._rpc_id,
+            "method": method,
+            "params": params,
+        }
+        request_url = self.mcp_url
+        allowed_hosts = {
+            "mcp.coros.com",
+            "mcpcn.coros.com",
+            "mcpeu.coros.com",
+            "mcpus.coros.com",
+        }
+        response = None
+        for _ in range(4):
+            response = await self.client.post(request_url, headers=headers, json=body)
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                break
+
+            location = response.headers.get("location")
+            if not location:
+                raise ValueError("COROS MCP 返回了缺少 Location 的重定向")
+            redirected_url = urljoin(request_url, location)
+            parsed = urlparse(redirected_url)
+            if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
+                raise ValueError(f"拒绝 COROS MCP 的非安全重定向: {redirected_url}")
+            request_url = redirected_url
+            self.mcp_url = redirected_url
+        else:
+            raise ValueError("COROS MCP 重定向次数过多")
+
+        if response is None:
+            raise ValueError("COROS MCP 未返回响应")
         if response.status_code != 200:
-            raise ValueError(f"初始化连接失败：HTTP {response.status_code}")
+            detail = response.text[:300].replace("\n", " ")
+            raise ValueError(f"HTTP {response.status_code}: {detail}")
 
-        # 解析响应（支持 SSE 格式）
         content_type = response.headers.get("content-type", "")
         if "text/event-stream" in content_type:
-            lines = response.text.split("\n")
-            data_lines = [line[5:].strip() for line in lines if line.startswith("data:")]
-            if data_lines:
-                payload = json.loads(data_lines[-1])
-            else:
-                raise ValueError("初始化响应为空")
-        else:
-            payload = response.json()
+            # SSE 一个事件可以由多个 data: 行组成，空行表示事件结束。
+            events = []
+            current_event = []
+            for line in response.text.splitlines():
+                if not line:
+                    if current_event:
+                        events.append("\n".join(current_event))
+                        current_event = []
+                elif line.startswith("data:"):
+                    current_event.append(line[5:].lstrip())
+            if current_event:
+                events.append("\n".join(current_event))
 
+            if not events:
+                raise ValueError("MCP SSE 响应为空")
+            for event in reversed(events):
+                try:
+                    return json.loads(event)
+                except json.JSONDecodeError:
+                    continue
+            raise ValueError("MCP SSE 响应不包含有效 JSON")
+        return response.json()
+
+    async def _list_tools(self, refresh: bool = False) -> dict[str, dict]:
+        """读取当前账号和端点实际可用的工具，避免依赖过期的硬编码列表。"""
+        if self._available_tools is not None and not refresh:
+            return self._available_tools
+
+        await self._initialize_session()
+        token = await self._ensure_token()
+        payload = await self._post_rpc("tools/list", {}, token)
         if "error" in payload:
-            raise ValueError(f"初始化连接失败：{payload['error']}")
+            raise ValueError(f"读取 MCP 工具列表失败: {payload['error']}")
 
-        self._initialized = True
+        tools = payload.get("result", {}).get("tools", [])
+        self._available_tools = {
+            tool["name"]: tool
+            for tool in tools
+            if isinstance(tool, dict) and tool.get("name")
+        }
+        return self._available_tools
+
+    @staticmethod
+    def _normalized_name(name: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", name.lower())
+
+    async def _resolve_tool(self, requested_name: str) -> tuple[str, dict]:
+        tools = await self._list_tools()
+        if requested_name in tools:
+            return requested_name, tools[requested_name]
+
+        normalized = self._normalized_name(requested_name)
+        for actual_name, definition in tools.items():
+            if self._normalized_name(actual_name) == normalized:
+                return actual_name, definition
+
+        available = ", ".join(sorted(tools)) or "(空)"
+        raise ValueError(
+            f"COROS MCP 当前未暴露工具 {requested_name!r}。"
+            f"端点: {self.mcp_url}；可用工具: {available}"
+        )
+
+    def _adapt_tool_arguments(self, definition: dict, arguments: dict) -> dict:
+        """按 tools/list 返回的 schema 对齐参数命名，并移除服务端不接受的旧参数。"""
+        schema = definition.get("inputSchema") or {}
+        properties = schema.get("properties") or {}
+        if not properties:
+            return arguments
+
+        normalized_properties = {
+            self._normalized_name(name): name for name in properties
+        }
+        adapted = {}
+        for name, value in arguments.items():
+            actual_name = name if name in properties else normalized_properties.get(
+                self._normalized_name(name)
+            )
+            if actual_name:
+                adapted[actual_name] = value
+        return adapted
 
     async def _call_tool(self, tool_name: str, arguments: dict) -> dict:
         """
@@ -275,42 +404,26 @@ class CorosClient:
         注意：COROS MCP v0.1.1+ 已改为无状态模式，不再需要 Session ID。
         """
         token = await self._ensure_token()
-        await self._initialize_session()
-
-        response = await self.client.post(
-            self.mcp_url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json, text/event-stream",
-            },
-            json={
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": tool_name,
-                    "arguments": arguments,
-                },
-            },
+        actual_name, definition = await self._resolve_tool(tool_name)
+        adapted_arguments = self._adapt_tool_arguments(definition, arguments)
+        payload = await self._post_rpc(
+            "tools/call",
+            {"name": actual_name, "arguments": adapted_arguments},
+            token,
         )
-
-        # 解析响应（支持 SSE 格式）
-        content_type = response.headers.get("content-type", "")
-        if "text/event-stream" in content_type:
-            # SSE 格式，提取最后一个 data 行
-            lines = response.text.split("\n")
-            data_lines = [line[5:].strip() for line in lines if line.startswith("data:")]
-            if data_lines:
-                payload = json.loads(data_lines[-1])
-            else:
-                raise ValueError("MCP 响应为空")
-        else:
-            payload = response.json()
 
         if "error" in payload:
             raise ValueError(f"MCP 工具调用失败: {payload['error']}")
 
-        return payload.get("result", {})
+        result = payload.get("result", {})
+        if result.get("isError"):
+            messages = [
+                item.get("text", "")
+                for item in result.get("content", [])
+                if item.get("type") == "text"
+            ]
+            raise ValueError("MCP 工具返回错误: " + " ".join(messages))
+        return result
 
     async def get_sleep_data(self, start_date: str, end_date: str) -> list[SleepRecord]:
         """
@@ -325,13 +438,17 @@ class CorosClient:
         """
         print(f"   📡 使用 COROS 官方 MCP 服务获取睡眠数据...")
 
-        # 调用 querySleepData 工具
+        start = datetime.strptime(start_date, "%Y%m%d")
+        end = datetime.strptime(end_date, "%Y%m%d")
+        days = max(1, (end - start).days + 1)
+
+        # tools/list 会在调用前核对工具名和当前参数 schema。
         result = await self._call_tool(
             "querySleepData",
             {
                 "startDate": start_date,
                 "endDate": end_date,
-                "days": 180,
+                "days": days,
                 "timezone": "Asia/Shanghai",
             },
         )

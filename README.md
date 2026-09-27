@@ -168,6 +168,12 @@ cp .env.example .env
 ### 运行测试
 
 ```bash
+python test_local.py
+```
+
+测试通过后执行完整同步：
+
+```bash
 python -m src.main
 ```
 
@@ -185,6 +191,13 @@ python -m src.main
 2. 确认 COROS Token 正确且未过期
 3. 确认 Notion Integration 已授权数据库访问
 4. 确认 GitHub Secrets 配置正确
+
+### `Unknown tool` / `Tool not found`
+
+客户端会优先连接 COROS 官方统一入口 `https://mcp.coros.com/mcp`，
+并在每次运行时通过 `tools/list` 以当前账号实际可见的工具名和参数为准。
+如日志明确提示工具未暴露，请重新授权 COROS 并更新 GitHub Secrets 中的 Token；
+日志会列出服务端当时返回的可用工具，便于继续定位。
 
 ### Token 过期
 
