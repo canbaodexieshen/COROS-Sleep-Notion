@@ -8,7 +8,8 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -47,6 +48,29 @@ def load_config() -> dict:
         raise ValueError(f"缺少必需的环境变量: {', '.join(missing)}")
 
     return config
+
+
+def _save_refreshed_token(token_data: dict) -> None:
+    """将刷新后的令牌安全写入 Runner 临时文件，交给后续工作流回写 Secrets。"""
+    output_path = os.getenv("COROS_TOKEN_OUTPUT_FILE")
+    if not output_path:
+        print("🔑 COROS Token 已刷新，但未配置自动回写文件。")
+        return
+
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(f"{target.suffix}.tmp")
+    temporary.write_text(
+        json.dumps(token_data, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    # GitHub-hosted Runner 是临时环境；仍将文件权限限制为当前用户可读写。
+    try:
+        temporary.chmod(0o600)
+    except OSError:
+        pass
+    temporary.replace(target)
+    print("🔑 COROS Token 已刷新，等待安全回写 GitHub Secrets。")
 
 
 def _merge_daily_health(
@@ -181,16 +205,13 @@ async def sync_sleep_data(config: dict) -> dict:
         print(f"   更新: {stats['updated']} 条")
         print(f"   失败: {stats['failed']} 条")
 
-        # 7. 输出刷新后的 token（如果有）
-        refreshed_token = coros_client.get_refreshed_token_data()
-        if refreshed_token:
-            print()
-            print("🔑 Token 已刷新，新的 token 数据：")
-            print(json.dumps(refreshed_token, indent=2))
-
         return stats
 
     finally:
+        # 即使同步后续步骤失败，也要保存已经轮换的 refresh token，避免下次失效。
+        refreshed_token = coros_client.get_refreshed_token_data()
+        if refreshed_token:
+            _save_refreshed_token(refreshed_token)
         await coros_client.close()
 
 

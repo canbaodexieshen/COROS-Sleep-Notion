@@ -11,6 +11,11 @@ on:
         description: '同步天数'
         required: false
         default: '7'
+      force_token_refresh:
+        description: '强制刷新并验证 COROS Token 自动回写'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -38,17 +43,54 @@ jobs:
           COROS_REFRESH_TOKEN: ${{ secrets.COROS_REFRESH_TOKEN }}
           COROS_CLIENT_ID: ${{ secrets.COROS_CLIENT_ID }}
           COROS_REGION: ${{ secrets.COROS_REGION }}
-          COROS_EXPIRES_AT: ${{ secrets.COROS_EXPIRES_AT }}
+          COROS_EXPIRES_AT: ${{ github.event.inputs.force_token_refresh == 'true' && '0' || secrets.COROS_EXPIRES_AT }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           SYNC_DAYS: ${{ github.event.inputs.sync_days || '7' }}
+          COROS_TOKEN_OUTPUT_FILE: ${{ runner.temp }}/coros-token.json
         run: python -m src.main
+
+      - name: Persist refreshed COROS token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.COROS_SECRET_UPDATE_TOKEN }}
+          TOKEN_FILE: ${{ runner.temp }}/coros-token.json
+        shell: bash
+        run: |
+          if [[ ! -f "$TOKEN_FILE" ]]; then
+            echo "COROS token was not refreshed; no GitHub Secrets update is needed."
+            exit 0
+          fi
+          trap 'rm -f -- "$TOKEN_FILE"' EXIT
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::COROS token was refreshed, but COROS_SECRET_UPDATE_TOKEN is not configured."
+            exit 1
+          fi
+
+          access_token="$(jq -r '.access_token // empty' "$TOKEN_FILE")"
+          refresh_token="$(jq -r '.refresh_token // empty' "$TOKEN_FILE")"
+          expires_at="$(jq -r '.expires_at_epoch // empty' "$TOKEN_FILE")"
+
+          if [[ -z "$access_token" || -z "$refresh_token" || -z "$expires_at" ]]; then
+            echo "::error::Refreshed COROS token file is incomplete."
+            exit 1
+          fi
+
+          echo "::add-mask::$access_token"
+          echo "::add-mask::$refresh_token"
+          echo "::add-mask::$expires_at"
+
+          printf '%s' "$refresh_token" | gh secret set COROS_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY"
+          printf '%s' "$access_token" | gh secret set COROS_ACCESS_TOKEN --repo "$GITHUB_REPOSITORY"
+          printf '%s' "$expires_at" | gh secret set COROS_EXPIRES_AT --repo "$GITHUB_REPOSITORY"
+
+          echo "COROS OAuth tokens were securely persisted to GitHub Secrets."
 
       - name: Upload logs (if failed)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: sync-logs
-          path: |
-            *.log
-            .env
+          path: '*.log'
+          if-no-files-found: ignore

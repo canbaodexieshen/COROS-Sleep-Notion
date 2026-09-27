@@ -114,13 +114,26 @@ cat ~/.coros-mcp-skill-gateway-ts/cn/token.json
 | `COROS_EXPIRES_AT` | 令牌过期时间戳 | 1781072275 |
 | `NOTION_TOKEN` | Notion Integration Token | ntn_xxx... |
 | `NOTION_DATABASE_ID` | Notion 数据库 ID | xxx... |
+| `COROS_SECRET_UPDATE_TOKEN` | 仅授权本仓库读写 Actions Secrets 的 GitHub 细粒度令牌 | github_pat_xxx... |
+
+`COROS_SECRET_UPDATE_TOKEN` 用于在 COROS OAuth Token 刷新后自动回写上述三个
+COROS Secrets。创建方法：
+
+1. 打开 GitHub「Settings → Developer settings → Personal access tokens → Fine-grained tokens」。
+2. Repository access 只选择当前仓库。
+3. Repository permissions 中将 `Secrets` 设置为 `Read and write`，其余权限保持最小。
+4. 创建后把令牌保存为仓库 Secret `COROS_SECRET_UPDATE_TOKEN`。
+
+> 不要把 COROS 账号密码保存到 GitHub。官方 COROS MCP 使用 OAuth 2.0 浏览器授权，
+> 本项目只保存授权产生的 token，并通过 refresh token 自动续期。
 
 ### 8. 手动触发测试
 
 1. 进入仓库的「Actions」页面
 2. 选择「Sync COROS Sleep Data to Notion」
 3. 点击「Run workflow」
-4. 等待运行完成，检查 Notion 数据库是否有数据
+4. 首次配置自动续期时，可勾选「强制刷新并验证 COROS Token 自动回写」进行一次验证
+5. 等待运行完成，检查 Notion 数据库是否有数据
 
 ## ⏰ 定时任务
 
@@ -134,17 +147,17 @@ on:
 
 ## 🔄 Token 刷新
 
-COROS Token 有效期约 30 天。脚本会在每次运行时自动检查并刷新 token。
+COROS Token 有效期约 30 天。脚本会在每次运行时检查到期时间，并在临近过期时：
 
-如果 token 过期，脚本会：
-1. 使用 refresh_token 获取新的 access_token
-2. 输出新的 token 数据到日志
+1. 使用 refresh token 向 COROS 官方 OAuth 端点续期。
+2. 将新 token 写入 GitHub Runner 的临时文件，不输出到 Actions 日志。
+3. 使用 `COROS_SECRET_UPDATE_TOKEN` 自动更新 `COROS_ACCESS_TOKEN`、
+   `COROS_REFRESH_TOKEN` 和 `COROS_EXPIRES_AT`。
+4. 更新完成后删除 Runner 临时文件。
 
-**如何更新 GitHub Secrets**：
-1. 查看 GitHub Actions 运行日志
-2. 找到 `🔑 Token 已刷新，新的 token 数据：` 部分
-3. 复制新的 token 数据
-4. 更新 GitHub Secrets 中的 `COROS_ACCESS_TOKEN`、`COROS_REFRESH_TOKEN`、`COROS_EXPIRES_AT`
+完成一次初始 OAuth 授权和上述 GitHub Secret 配置后，正常情况下无需每月手工更新
+COROS Token。如果 COROS 主动撤销授权、refresh token 本身失效，或
+`COROS_SECRET_UPDATE_TOKEN` 到期，才需要重新授权或更换对应令牌。
 
 ## 🛠️ 本地开发
 
