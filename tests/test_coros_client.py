@@ -69,11 +69,16 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
                         {
                             "type": "text",
                             "text": (
-                                "Sleep Overview\n========================\n\n"
-                                "2026-09-25\nSleep Score: 88\n"
-                                "Main Sleep: 7h 30min\nDeep Sleep Ratio: 20%\n"
-                                "Light Sleep Ratio: 60%\nREM Ratio: 20%\n"
-                                "Awake Time: 5 min\nNaps Total: 20 min"
+                                "# Sleep Overview\n\n"
+                                "## 2026-09-25 (Friday)\n"
+                                "- **Sleep Score:** 88\n"
+                                "- **Main Sleep Duration:** 7 hr 30 min\n"
+                                "- **Deep Sleep:** 1 hr 30 min (20%)\n"
+                                "- **Light Sleep:** 4 hr 30 min (60%)\n"
+                                "- **REM:** 1 hr 30 min (20%)\n"
+                                "- **Awake Duration:** 5 min\n"
+                                "- **Awake Count:** 1\n"
+                                "- **Naps:** 20 min"
                             ),
                         }
                     ]
@@ -134,6 +139,49 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
             body for _, body in self.requests if body["method"] == "tools/call"
         )
         self.assertEqual(tool_call["params"]["name"], "querySleepData")
+
+    def test_parses_multiple_markdown_date_blocks(self):
+        records = self.client._parse_sleep_text(
+            "# Sleep Overview\n\n"
+            "### Wake-up Date: 2026/09/24:\n"
+            "- Sleep Score: 81\n"
+            "- Main Sleep: 7h\n\n"
+            "### 2026-09-25 Friday\n"
+            "- Sleep Score: 88\n"
+            "- Main Sleep Duration: 7 hours 30 minutes\n"
+            "- Deep Sleep: 20%\n"
+        )
+
+        self.assertEqual([record.date for record in records], [
+            "2026-09-24",
+            "2026-09-25",
+        ])
+        self.assertEqual(records[0].total_duration_minutes, 420)
+        self.assertEqual(records[1].total_duration_minutes, 450)
+        self.assertEqual(records[1].deep_pct, 20)
+
+    def test_parses_structured_sleep_overview(self):
+        records = self.client._parse_structured_sleep({
+            "sleepOverviews": [
+                {
+                    "wake_up_date": "20260925",
+                    "sleep_score": 88,
+                    "main_sleep_duration": "7h 30min",
+                    "deep_sleep_ratio": 0.2,
+                    "light_sleep_ratio": "60%",
+                    "rem_ratio": 20,
+                    "awake_duration": "5 min",
+                    "awake_count": 1,
+                    "nap_minutes": 20,
+                }
+            ]
+        })
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].date, "2026-09-25")
+        self.assertEqual(records[0].total_duration_minutes, 450)
+        self.assertEqual(records[0].deep_pct, 20)
+        self.assertEqual(records[0].phases.deep_minutes, 90)
 
 
 if __name__ == "__main__":

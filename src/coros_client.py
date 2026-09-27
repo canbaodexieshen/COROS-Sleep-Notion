@@ -106,17 +106,26 @@ def _parse_duration_str(duration_str: str) -> int:
     if not duration_str:
         return 0
 
-    # 格式: "Xh Ymin" 或 "X hour Y min"
-    match = re.search(r'(\d+)\s*h(?:our)?s?\s*(\d+)?\s*min?', duration_str, re.IGNORECASE)
+    # 格式: "Xh Ymin"、"X hr Y min" 或 "X hours Y minutes"
+    match = re.search(
+        r'(\d+)\s*h(?:ours?|rs?)?(?:\s*(\d+)\s*m(?:in(?:ute)?s?)?)?',
+        duration_str,
+        re.IGNORECASE,
+    )
     if match:
         hours = int(match.group(1))
         minutes = int(match.group(2) or 0)
         return hours * 60 + minutes
 
     # 格式: "X min"
-    match = re.search(r'(\d+)\s*min', duration_str, re.IGNORECASE)
+    match = re.search(r'(\d+)\s*m(?:in(?:ute)?s?)?', duration_str, re.IGNORECASE)
     if match:
         return int(match.group(1))
+
+    # 格式: "7:30"（小时:分钟）
+    match = re.search(r'\b(\d{1,2}):(\d{2})\b', duration_str)
+    if match:
+        return int(match.group(1)) * 60 + int(match.group(2))
 
     # 格式: 纯数字（默认分钟）
     match = re.search(r'^(\d+)$', duration_str.strip())
@@ -124,6 +133,63 @@ def _parse_duration_str(duration_str: str) -> int:
         return int(match.group(1))
 
     return 0
+
+
+def _extract_labeled_value(block: str, *labels: str) -> Optional[str]:
+    """从普通文本或 Markdown 列表中提取“标签: 值”。"""
+    cleaned = block.replace("**", "").replace("__", "")
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    match = re.search(
+        rf'(?im)^[ \t]*(?:[-*•][ \t]+)?(?:{label_pattern})[ \t]*[:：][ \t]*(.+?)[ \t]*$',
+        cleaned,
+    )
+    return match.group(1).strip() if match else None
+
+
+def _extract_percentage(block: str, *labels: str) -> Optional[float]:
+    value = _extract_labeled_value(block, *labels)
+    if value is None:
+        return None
+    match = re.search(r'(\d+(?:\.\d+)?)\s*%', value)
+    return float(match.group(1)) if match else None
+
+
+def _normalized_mapping_value(data: dict, *names: str):
+    """按忽略大小写和分隔符的字段名读取 MCP 结构化数据。"""
+    normalized = {
+        re.sub(r"[^a-z0-9]", "", str(key).lower()): value
+        for key, value in data.items()
+    }
+    for name in names:
+        key = re.sub(r"[^a-z0-9]", "", name.lower())
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+def _duration_value_to_minutes(value) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # MCP 通常返回分钟；明显超出一天时按秒处理。
+        return round(value / 60) if value > 1440 else round(value)
+    parsed = _parse_duration_str(str(value))
+    return parsed or None
+
+
+def _ratio_value(value) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        match = re.search(r'(\d+(?:\.\d+)?)\s*%?', value)
+        if not match:
+            return None
+        number = float(match.group(1))
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+    else:
+        return None
+    return number * 100 if 0 < number <= 1 else number
 
 
 class CorosClient:
@@ -466,16 +532,18 @@ class CorosClient:
             },
         )
 
-        # 解析结果
-        sleep_records = []
+        # 解析结果。新版 MCP 可能同时返回 structuredContent 和文本 content。
+        sleep_records = self._parse_structured_sleep(result.get("structuredContent"))
 
         # 从 MCP 响应中提取数据
         content_list = result.get("content", [])
         if not content_list:
-            print(f"   ⚠️  未获取到睡眠数据")
+            if not sleep_records:
+                print(f"   ⚠️  未获取到睡眠数据")
             return sleep_records
 
         # 提取文本数据并解析
+        unparsed_texts = []
         for content in content_list:
             if content.get("type") == "text":
                 raw_text = content.get("text", "")
@@ -498,10 +566,136 @@ class CorosClient:
                 if isinstance(text, str):
                     text = text.replace('\\n', '\n').replace('\\t', '\t')
 
-                records = self._parse_sleep_text(text)
-                sleep_records.extend(records)
+                if isinstance(text, str):
+                    records = self._parse_sleep_text(text)
+                    sleep_records.extend(records)
+                    if text.strip() and not records:
+                        unparsed_texts.append(text)
+                elif isinstance(text, (dict, list)):
+                    sleep_records.extend(self._parse_structured_sleep(text))
 
-        return sleep_records
+            elif content.get("type") in {"json", "resource"}:
+                sleep_records.extend(
+                    self._parse_structured_sleep(
+                        content.get("json", content.get("data", content.get("resource")))
+                    )
+                )
+
+        if not sleep_records and unparsed_texts:
+            # 只输出字段名和日期标记数，不把用户的具体睡眠值写入日志。
+            combined = "\n".join(unparsed_texts)
+            labels = sorted({
+                match.strip()
+                for match in re.findall(
+                    r'(?im)^[ \t]*(?:[-*•][ \t]+)?(?:\*\*)?([A-Za-z][A-Za-z0-9 ()/>_-]{1,40})(?:\*\*)?[ \t]*[:：]',
+                    combined,
+                )
+            })
+            date_count = len(re.findall(r'\d{4}[-/]\d{2}[-/]\d{2}', combined))
+            fields = ", ".join(labels[:20]) or "(未识别到标签)"
+            print(
+                f"   ⚠️  MCP 已返回内容，但睡眠格式未能解析；"
+                f"日期标记={date_count}，字段={fields}"
+            )
+
+        # structuredContent 与 content 可能是同一批数据的两种表示，按日期去重。
+        return list({record.date: record for record in sleep_records}.values())
+
+    def _parse_structured_sleep(self, payload) -> list[SleepRecord]:
+        """解析 MCP 的 JSON/structuredContent 睡眠响应。"""
+        records = []
+        if isinstance(payload, list):
+            for item in payload:
+                records.extend(self._parse_structured_sleep(item))
+            return records
+        if not isinstance(payload, dict):
+            return records
+
+        date_value = _normalized_mapping_value(
+            payload, "date", "wakeUpDate", "sleepDate", "day"
+        )
+        if date_value is None:
+            for value in payload.values():
+                if isinstance(value, (dict, list)):
+                    records.extend(self._parse_structured_sleep(value))
+            return records
+
+        date_match = re.search(r'(\d{4})[-/]?(\d{2})[-/]?(\d{2})', str(date_value))
+        if not date_match:
+            return records
+        date = "-".join(date_match.groups())
+
+        score_value = _normalized_mapping_value(
+            payload, "sleepScore", "qualityScore", "score"
+        )
+        score_match = re.search(r'\d+', str(score_value)) if score_value is not None else None
+        quality_score = int(score_match.group()) if score_match else None
+
+        total_minutes = _duration_value_to_minutes(_normalized_mapping_value(
+            payload,
+            "mainSleepDuration",
+            "mainSleepMinutes",
+            "mainSleepTotal",
+            "mainSleep",
+            "dailySleepDuration",
+            "dailySleep",
+        ))
+        deep_pct = _ratio_value(_normalized_mapping_value(
+            payload, "deepSleepRatio", "deepRatio", "deepSleepPercentage", "deepPct"
+        ))
+        light_pct = _ratio_value(_normalized_mapping_value(
+            payload, "lightSleepRatio", "lightRatio", "lightSleepPercentage", "lightPct"
+        ))
+        rem_pct = _ratio_value(_normalized_mapping_value(
+            payload, "remRatio", "remSleepRatio", "remSleepPercentage", "remPct"
+        ))
+        awake_pct = _ratio_value(_normalized_mapping_value(
+            payload, "awakeRatio", "awakePercentage", "awakePct"
+        ))
+        awake_minutes = _duration_value_to_minutes(_normalized_mapping_value(
+            payload, "awakeTime", "awakeDuration", "awakeMinutes"
+        ))
+        awake_count_value = _normalized_mapping_value(
+            payload, "awakeCount", "wakeCount"
+        )
+        awake_count_match = (
+            re.search(r'\d+', str(awake_count_value))
+            if awake_count_value is not None else None
+        )
+        awake_count = int(awake_count_match.group()) if awake_count_match else None
+        nap_minutes = _duration_value_to_minutes(_normalized_mapping_value(
+            payload, "napsTotal", "napTotal", "napDuration", "napMinutes"
+        ))
+
+        if total_minutes is None and quality_score is None:
+            return records
+        records.append(SleepRecord(
+            date=date,
+            total_duration_minutes=total_minutes,
+            phases=SleepPhases(
+                deep_minutes=(
+                    int(total_minutes * deep_pct / 100)
+                    if total_minutes and deep_pct is not None else None
+                ),
+                light_minutes=(
+                    int(total_minutes * light_pct / 100)
+                    if total_minutes and light_pct is not None else None
+                ),
+                rem_minutes=(
+                    int(total_minutes * rem_pct / 100)
+                    if total_minutes and rem_pct is not None else None
+                ),
+                awake_minutes=awake_minutes,
+                nap_minutes=nap_minutes,
+            ),
+            quality_score=quality_score,
+            deep_pct=deep_pct,
+            light_pct=light_pct,
+            rem_pct=rem_pct,
+            awake_pct=awake_pct,
+            awake_count=awake_count,
+        ))
+        return records
 
     def _parse_sleep_text(self, text: str) -> list[SleepRecord]:
         """
@@ -525,9 +719,33 @@ class CorosClient:
         """
         records = []
 
-        # 分割每个日期的数据块
-        # 按日期行分割（格式：YYYY-MM-DD）
-        blocks = re.split(r'\n\s*(?=\d{4}-\d{2}-\d{2}\s*\n)', text)
+        if not isinstance(text, str):
+            return records
+
+        # 同时支持旧版纯日期行和新版 Markdown/Date 日期标题。
+        date_line_pattern = re.compile(
+            r'(?im)^[ \t]*(?:[-*•][ \t]+)?(?:#{1,6}[ \t]+)?'
+            r'(?:(?:Date|Wake[- ]?up Date)[ \t]*[:：][ \t]*)?'
+            r'(\d{4}[-/]\d{2}[-/]\d{2})'
+            r'(?:[ \t]*\([^\r\n)]*\)|[ \t]+[A-Za-z]+)?[ \t]*[:：]?[ \t]*$'
+        )
+        date_markers = list(date_line_pattern.finditer(text))
+        if not date_markers:
+            # 某些发布批次会把一整天压成一行，以任意日期位置作为兜底分界。
+            date_markers = list(re.finditer(
+                r'(?<!\d)\d{4}[-/]\d{2}[-/]\d{2}(?!\d)', text
+            ))
+        if date_markers:
+            blocks = [
+                text[marker.start():(
+                    date_markers[index + 1].start()
+                    if index + 1 < len(date_markers)
+                    else len(text)
+                )]
+                for index, marker in enumerate(date_markers)
+            ]
+        else:
+            blocks = [text]
 
         for block in blocks:
             block = block.strip()
@@ -544,46 +762,77 @@ class CorosClient:
         """解析单个睡眠数据块"""
         try:
             # 提取日期
-            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', block)
+            date_match = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2})', block)
             if not date_match:
                 return None
-            date = date_match.group(1)
+            date = date_match.group(1).replace('/', '-')
 
             # 提取睡眠评分
-            score_match = re.search(r'Sleep Score:\s*(\d+)', block)
-            quality_score = int(score_match.group(1)) if score_match else None
+            score_value = _extract_labeled_value(block, "Sleep Score", "Score")
+            score_match = re.search(r'\d+', score_value or "")
+            quality_score = int(score_match.group()) if score_match else None
 
             # 提取主要睡眠时长
-            sleep_match = re.search(r'Main Sleep:\s*(.+?)(?:\n|$)', block)
-            total_minutes = _parse_duration_str(sleep_match.group(1)) if sleep_match else None
+            sleep_value = _extract_labeled_value(
+                block,
+                "Main Sleep Duration",
+                "Main Sleep Total",
+                "Main Sleep",
+            )
+            if sleep_value is None:
+                nested_duration = re.search(
+                    r'(?is)Main Sleep.{0,160}?\bDuration[ \t]*[:：][ \t]*([^\r\n]+)',
+                    block.replace("**", "").replace("__", ""),
+                )
+                sleep_value = nested_duration.group(1).strip() if nested_duration else None
+            if sleep_value is None:
+                sleep_value = _extract_labeled_value(
+                    block, "Daily Sleep Duration", "Daily Sleep"
+                )
+            parsed_duration = _parse_duration_str(sleep_value or "")
+            total_minutes = parsed_duration or None
 
             # 提取深度睡眠比例
-            deep_match = re.search(r'Deep Sleep Ratio:\s*(\d+)%', block)
-            deep_pct = float(deep_match.group(1)) if deep_match else None
+            deep_pct = _extract_percentage(
+                block, "Deep Sleep Ratio", "Deep Ratio", "Deep Sleep"
+            )
 
             # 提取浅度睡眠比例
-            light_match = re.search(r'Light Sleep Ratio:\s*(\d+)%', block)
-            light_pct = float(light_match.group(1)) if light_match else None
+            light_pct = _extract_percentage(
+                block, "Light Sleep Ratio", "Light Ratio", "Light Sleep"
+            )
 
             # 提取 REM 比例
-            rem_match = re.search(r'REM Ratio:\s*(\d+)%', block)
-            rem_pct = float(rem_match.group(1)) if rem_match else None
+            rem_pct = _extract_percentage(block, "REM Ratio", "REM Sleep Ratio", "REM")
 
             # 提取清醒比例
-            awake_pct_match = re.search(r'Awake Ratio:\s*(\d+)%', block)
-            awake_pct = float(awake_pct_match.group(1)) if awake_pct_match else None
+            awake_pct = _extract_percentage(block, "Awake Ratio", "Awake")
 
             # 提取清醒时间
-            awake_time_match = re.search(r'Awake Time:\s*(\d+)\s*min', block)
-            awake_minutes = int(awake_time_match.group(1)) if awake_time_match else None
+            awake_value = _extract_labeled_value(
+                block, "Awake Time", "Awake Duration"
+            )
+            parsed_awake = _parse_duration_str(awake_value or "")
+            awake_minutes = parsed_awake or None
 
             # 提取清醒次数
-            awake_count_match = re.search(r'Awake Count.*?:\s*(\d+)', block)
-            awake_count = int(awake_count_match.group(1)) if awake_count_match else None
+            awake_count_value = _extract_labeled_value(
+                block, "Awake Count", "Awake Count (>5 min)", "Wake Count"
+            )
+            awake_count_match = re.search(r'\d+', awake_count_value or "")
+            awake_count = int(awake_count_match.group()) if awake_count_match else None
 
             # 提取小睡时间
-            nap_match = re.search(r'Naps Total:\s*(\d+)\s*min', block)
-            nap_minutes = int(nap_match.group(1)) if nap_match else None
+            nap_value = _extract_labeled_value(
+                block,
+                "Naps Total",
+                "Nap Total",
+                "Total Naps",
+                "Nap Duration",
+                "Naps",
+            )
+            parsed_nap = _parse_duration_str(nap_value or "")
+            nap_minutes = parsed_nap or None
 
             # 计算各阶段的分钟数（基于总时长和百分比）
             deep_minutes = None
@@ -597,7 +846,7 @@ class CorosClient:
             if total_minutes and rem_pct is not None:
                 rem_minutes = int(total_minutes * rem_pct / 100)
 
-            if not total_minutes or total_minutes == 0:
+            if total_minutes is None and quality_score is None:
                 return None
 
             return SleepRecord(
