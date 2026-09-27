@@ -4,6 +4,8 @@ COROS API Client - 使用 COROS 官方 MCP 服务获取睡眠数据
 支持 token 自动刷新
 """
 
+import base64
+import binascii
 import json
 import os
 import re
@@ -77,19 +79,19 @@ class StressRecord(BaseModel):
 COROS_MCP_URL = "https://mcp.coros.com/mcp"
 COROS_MCP_CONFIGS = {
     "cn": {
-        "issuer": "https://mcp.coros.com",
+        "issuer": "https://mcpcn.coros.com",
         "regional_mcp_url": "https://mcpcn.coros.com/mcp",
     },
     "eu": {
-        "issuer": "https://mcp.coros.com",
+        "issuer": "https://mcpeu.coros.com",
         "regional_mcp_url": "https://mcpeu.coros.com/mcp",
     },
     "us": {
-        "issuer": "https://mcp.coros.com",
+        "issuer": "https://mcpus.coros.com",
         "regional_mcp_url": "https://mcpus.coros.com/mcp",
     },
 }
-CLIENT_ID = "ccd9bd8c-6504-4b83-80ab-edad29e075cc"
+CLIENT_ID = None
 
 # COROS 的不同区域/发布批次可能在新旧工具名之间切换。
 # tools/list 仍是最终依据，这里只定义语义等价的兼容名称。
@@ -192,6 +194,28 @@ def _ratio_value(value) -> Optional[float]:
     return number * 100 if 0 < number <= 1 else number
 
 
+def _client_id_from_access_token(access_token: str) -> Optional[str]:
+    """从 JWT 声明读取 OAuth 客户端 ID；无法识别时安全返回 None。"""
+    try:
+        parts = access_token.split(".")
+        if len(parts) < 2:
+            return None
+        encoded = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+        for key in ("client_id", "clientId", "azp"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                return value
+    except (
+        ValueError,
+        TypeError,
+        binascii.Error,
+        UnicodeDecodeError,
+    ):
+        return None
+    return None
+
+
 class CorosClient:
     """COROS API 客户端（使用官方 MCP 服务）"""
 
@@ -199,7 +223,7 @@ class CorosClient:
         self,
         access_token: str,
         refresh_token: str,
-        client_id: str = CLIENT_ID,
+        client_id: Optional[str] = CLIENT_ID,
         region: str = "cn",
         expires_at: Optional[int] = None,
         mcp_url: Optional[str] = None,
@@ -216,7 +240,11 @@ class CorosClient:
         """
         self.access_token = access_token
         self.refresh_token = refresh_token
-        self.client_id = client_id
+        configured_client_id = client_id.strip() if client_id else None
+        token_client_id = _client_id_from_access_token(access_token)
+        if token_client_id and configured_client_id != token_client_id:
+            print("   ℹ️  已采用 access token 关联的 COROS OAuth 客户端 ID")
+        self.client_id = token_client_id or configured_client_id
         self.region = region.lower()
         self.expires_at = expires_at
 
@@ -259,6 +287,12 @@ class CorosClient:
         """
         print(f"   🔄 正在刷新 COROS Token...")
 
+        if not self.client_id:
+            raise ValueError(
+                "Token 刷新缺少 COROS_CLIENT_ID。请从生成当前 access/refresh token 的"
+                "同一份官方 token.json 中复制 client_id；不要使用 README 示例值。"
+            )
+
         response = await self.client.post(
             f"{self.issuer}/oauth2/token",
             data={
@@ -272,6 +306,17 @@ class CorosClient:
         )
 
         if response.status_code != 200:
+            try:
+                error_code = response.json().get("error")
+            except (json.JSONDecodeError, TypeError):
+                error_code = None
+            if response.status_code == 401 and error_code == "invalid_client":
+                raise ValueError(
+                    "COROS 拒绝刷新：OAuth client_id 与当前 refresh token 不匹配。"
+                    f"当前刷新端点为 {self.issuer}/oauth2/token。请把 GitHub Secret "
+                    "COROS_CLIENT_ID 更新为生成这组 token 的同一份官方 token.json "
+                    "中的 client_id，并确认 COROS_REGION 与 token 所在区域一致。"
+                )
             raise ValueError(f"Token 刷新失败: {response.status_code} {response.text}")
 
         payload = response.json()

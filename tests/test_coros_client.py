@@ -1,11 +1,17 @@
+import base64
 import json
 import time
 import unittest
+from urllib.parse import parse_qs
 from unittest.mock import patch
 
 import httpx
 
-from src.coros_client import COROS_MCP_URL, CorosClient
+from src.coros_client import (
+    COROS_MCP_URL,
+    CorosClient,
+    _client_id_from_access_token,
+)
 
 
 class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
@@ -139,6 +145,55 @@ class CorosClientMcpTests(unittest.IsolatedAsyncioTestCase):
             body for _, body in self.requests if body["method"] == "tools/call"
         )
         self.assertEqual(tool_call["params"]["name"], "querySleepData")
+
+    async def test_refresh_uses_regional_issuer_and_dynamic_client_id(self):
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            self.assertEqual(request.url.host, "mcpcn.coros.com")
+            self.assertEqual(request.url.path, "/oauth2/token")
+            form = parse_qs(request.content.decode("utf-8"))
+            self.assertEqual(form["grant_type"], ["refresh_token"])
+            self.assertEqual(form["client_id"], ["dynamic-client-id"])
+            self.assertEqual(form["refresh_token"], ["old-refresh-token"])
+            return httpx.Response(200, json={
+                "access_token": "new-access-token",
+                "refresh_token": "new-refresh-token",
+                "expires_in": 3600,
+            })
+
+        client = CorosClient(
+            access_token="old-access-token",
+            refresh_token="old-refresh-token",
+            client_id="dynamic-client-id",
+            region="cn",
+            expires_at=0,
+        )
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            with patch("builtins.print"):
+                token = await client._ensure_token()
+        finally:
+            await client.close()
+
+        self.assertEqual(token, "new-access-token")
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(
+            client.get_refreshed_token_data()["client_id"],
+            "dynamic-client-id",
+        )
+
+    def test_extracts_dynamic_client_id_from_access_token(self):
+        payload = base64.urlsafe_b64encode(json.dumps({
+            "client_id": "client-from-token",
+        }).encode("utf-8")).decode("ascii").rstrip("=")
+
+        self.assertEqual(
+            _client_id_from_access_token(f"header.{payload}.signature"),
+            "client-from-token",
+        )
 
     def test_parses_multiple_markdown_date_blocks(self):
         records = self.client._parse_sleep_text(

@@ -12,6 +12,7 @@ class TokenPersistenceTests(unittest.TestCase):
             "access_token": "new-access-secret",
             "refresh_token": "new-refresh-secret",
             "expires_at_epoch": 1800000000,
+            "client_id": "dynamic-client-id",
         }
 
         with patch.dict(
@@ -41,6 +42,7 @@ class TokenPersistenceTests(unittest.TestCase):
             "access_token": "new-access-secret",
             "refresh_token": "new-refresh-secret",
             "expires_at_epoch": 1800000000,
+            "client_id": "dynamic-client-id",
         }
 
         with patch.dict(os.environ, {}, clear=True), patch(

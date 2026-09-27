@@ -71,8 +71,9 @@ jobs:
           access_token="$(jq -r '.access_token // empty' "$TOKEN_FILE")"
           refresh_token="$(jq -r '.refresh_token // empty' "$TOKEN_FILE")"
           expires_at="$(jq -r '.expires_at_epoch // empty' "$TOKEN_FILE")"
+          client_id="$(jq -r '.client_id // empty' "$TOKEN_FILE")"
 
-          if [[ -z "$access_token" || -z "$refresh_token" || -z "$expires_at" ]]; then
+          if [[ -z "$access_token" || -z "$refresh_token" || -z "$expires_at" || -z "$client_id" ]]; then
             echo "::error::Refreshed COROS token file is incomplete."
             exit 1
           fi
@@ -80,10 +81,12 @@ jobs:
           echo "::add-mask::$access_token"
           echo "::add-mask::$refresh_token"
           echo "::add-mask::$expires_at"
+          echo "::add-mask::$client_id"
 
           printf '%s' "$refresh_token" | gh secret set COROS_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY"
           printf '%s' "$access_token" | gh secret set COROS_ACCESS_TOKEN --repo "$GITHUB_REPOSITORY"
           printf '%s' "$expires_at" | gh secret set COROS_EXPIRES_AT --repo "$GITHUB_REPOSITORY"
+          printf '%s' "$client_id" | gh secret set COROS_CLIENT_ID --repo "$GITHUB_REPOSITORY"
 
           echo "COROS OAuth tokens were securely persisted to GitHub Secrets."
 

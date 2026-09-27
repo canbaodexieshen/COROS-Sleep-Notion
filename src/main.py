@@ -30,7 +30,7 @@ def load_config() -> dict:
     config = {
         "coros_access_token": os.getenv("COROS_ACCESS_TOKEN"),
         "coros_refresh_token": os.getenv("COROS_REFRESH_TOKEN"),
-        "coros_client_id": os.getenv("COROS_CLIENT_ID", "ccd9bd8c-6504-4b83-80ab-edad29e075cc"),
+        "coros_client_id": os.getenv("COROS_CLIENT_ID"),
         "coros_region": os.getenv("COROS_REGION", "cn"),
         "coros_expires_at": int(os.getenv("COROS_EXPIRES_AT", "0")),
         "notion_token": os.getenv("NOTION_TOKEN"),
@@ -40,7 +40,13 @@ def load_config() -> dict:
 
     # 验证必需的配置
     missing = []
-    for k in ["coros_access_token", "coros_refresh_token", "notion_token", "notion_database_id"]:
+    for k in [
+        "coros_access_token",
+        "coros_refresh_token",
+        "coros_client_id",
+        "notion_token",
+        "notion_database_id",
+    ]:
         if config.get(k) is None:
             missing.append(k)
 

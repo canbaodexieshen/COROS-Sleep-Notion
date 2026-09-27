@@ -87,7 +87,7 @@ https://www.notion.so/xxxxxxxxxx?v=yyyyyyyyyy
 
 然后执行以下命令获取 token 数据：
 ```bash
-cat ~/.coros-mcp-skill-gateway-ts/cn/token.json
+cat ~/.coros-mcp-skill-gateway/cn/token.json
 ```
 
 你会看到类似这样的输出：
@@ -97,7 +97,7 @@ cat ~/.coros-mcp-skill-gateway-ts/cn/token.json
   "refresh_token": "u43wl...",
   "expires_at_epoch": 1781072275,
   "token_type": "Bearer",
-  "client_id": "ccd9bd8c-6504-4b83-80ab-edad29e075cc"
+  "client_id": "以实际动态注册值为准"
 }
 ```
 
@@ -109,7 +109,7 @@ cat ~/.coros-mcp-skill-gateway-ts/cn/token.json
 |-------------|------|------|
 | `COROS_ACCESS_TOKEN` | COROS 访问令牌 | eyJ... |
 | `COROS_REFRESH_TOKEN` | COROS 刷新令牌 | u43wl... |
-| `COROS_CLIENT_ID` | 客户端 ID | ccd9bd8c-6504-4b83-80ab-edad29e075cc |
+| `COROS_CLIENT_ID` | 与当前 token 同时生成的动态客户端 ID | 从同一份 token.json 原样复制 |
 | `COROS_REGION` | 区域 | cn |
 | `COROS_EXPIRES_AT` | 令牌过期时间戳 | 1781072275 |
 | `NOTION_TOKEN` | Notion Integration Token | ntn_xxx... |
@@ -126,6 +126,10 @@ COROS Secrets。创建方法：
 
 > 不要把 COROS 账号密码保存到 GitHub。官方 COROS MCP 使用 OAuth 2.0 浏览器授权，
 > 本项目只保存授权产生的 token，并通过 refresh token 自动续期。
+>
+> `COROS_CLIENT_ID` 不是项目固定值。COROS 官方工具会动态注册 OAuth 客户端；
+> access token、refresh token 和 client_id 必须来自同一次授权生成的同一份
+> `token.json`，区域也必须与该文件所在的 `cn`、`eu` 或 `us` 目录一致。
 
 ### 8. 手动触发测试
 
@@ -152,7 +156,7 @@ COROS Token 有效期约 30 天。脚本会在每次运行时检查到期时间�
 1. 使用 refresh token 向 COROS 官方 OAuth 端点续期。
 2. 将新 token 写入 GitHub Runner 的临时文件，不输出到 Actions 日志。
 3. 使用 `COROS_SECRET_UPDATE_TOKEN` 自动更新 `COROS_ACCESS_TOKEN`、
-   `COROS_REFRESH_TOKEN` 和 `COROS_EXPIRES_AT`。
+   `COROS_REFRESH_TOKEN`、`COROS_EXPIRES_AT` 和 `COROS_CLIENT_ID`。
 4. 更新完成后删除 Runner 临时文件。
 
 完成一次初始 OAuth 授权和上述 GitHub Secret 配置后，正常情况下无需每月手工更新
