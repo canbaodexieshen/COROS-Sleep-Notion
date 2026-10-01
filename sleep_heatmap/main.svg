@@ -13,7 +13,7 @@
 
   <text class="heatmap-title" x="40" y="16" font-size="15" font-weight="bold">睡眠评分热力图</text>
 
-  <text class="heatmap-label" x="40" y="36" font-size="12">2026: 189天优秀 · 69天良好 · 14天较差</text>
+  <text class="heatmap-label" x="40" y="36" font-size="12">2026: 190天优秀 · 69天良好 · 14天较差</text>
 
   <text class="heatmap-label" x="40" y="60" font-size="12">Jan</text>
   <text class="heatmap-label" x="104" y="60" font-size="12">Feb</text>
@@ -306,7 +306,7 @@
   <rect class="cell-excellent" x="664" y="65" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-09-28" data-score="96" data-duration="575" data-nap=""><title>2026-09-28 | 96分 | 9h 35min</title></rect>
   <rect class="cell-excellent" x="664" y="81" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-09-29" data-score="95" data-duration="668" data-nap=""><title>2026-09-29 | 95分 | 11h 8min</title></rect>
   <rect class="cell-poor" x="664" y="97" width="13" height="13" rx="2" ry="2" fill="#fa2f47" data-date="2026-09-30" data-score="50" data-duration="361" data-nap=""><title>2026-09-30 | 50分 | 6h 1min</title></rect>
-  <rect class="cell-empty" x="664" y="113" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-10-01" data-score="" data-duration="" data-nap=""><title>2026-10-01 | 无评分 | N/A</title></rect>
+  <rect class="cell-excellent" x="664" y="113" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-10-01" data-score="87" data-duration="550" data-nap=""><title>2026-10-01 | 87分 | 9h 10min</title></rect>
   <rect class="cell-empty" x="664" y="129" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-10-02" data-score="" data-duration="" data-nap=""><title>2026-10-02 | 无评分 | N/A</title></rect>
   <rect class="cell-empty" x="664" y="145" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-10-03" data-score="" data-duration="" data-nap=""><title>2026-10-03 | 无评分 | N/A</title></rect>
   <rect class="cell-empty" x="664" y="161" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-10-04" data-score="" data-duration="" data-nap=""><title>2026-10-04 | 无评分 | N/A</title></rect>
