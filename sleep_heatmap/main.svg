@@ -13,7 +13,7 @@
 
   <text class="heatmap-title" x="40" y="16" font-size="15" font-weight="bold">睡眠评分热力图</text>
 
-  <text class="heatmap-label" x="40" y="36" font-size="12">2026: 213天优秀 · 77天良好 · 18天较差</text>
+  <text class="heatmap-label" x="40" y="36" font-size="12">2026: 214天优秀 · 78天良好 · 17天较差</text>
 
   <text class="heatmap-label" x="40" y="60" font-size="12">Jan</text>
   <text class="heatmap-label" x="104" y="60" font-size="12">Feb</text>
@@ -342,8 +342,8 @@
   <rect class="cell-good" x="744" y="81" width="13" height="13" rx="2" ry="2" fill="#ffdd00" data-date="2026-11-03" data-score="85" data-duration="466" data-nap=""><title>2026-11-03 | 85分 | 7h 46min</title></rect>
   <rect class="cell-poor" x="744" y="97" width="13" height="13" rx="2" ry="2" fill="#fa2f47" data-date="2026-11-04" data-score="58" data-duration="530" data-nap=""><title>2026-11-04 | 58分 | 8h 50min</title></rect>
   <rect class="cell-good" x="744" y="113" width="13" height="13" rx="2" ry="2" fill="#ffdd00" data-date="2026-11-05" data-score="80" data-duration="469" data-nap=""><title>2026-11-05 | 80分 | 7h 49min</title></rect>
-  <rect class="cell-poor" x="744" y="129" width="13" height="13" rx="2" ry="2" fill="#fa2f47" data-date="2026-11-06" data-score="57" data-duration="287" data-nap=""><title>2026-11-06 | 57分 | 4h 47min</title></rect>
-  <rect class="cell-empty" x="744" y="145" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-11-07" data-score="" data-duration="" data-nap=""><title>2026-11-07 | 无评分 | N/A</title></rect>
+  <rect class="cell-good" x="744" y="129" width="13" height="13" rx="2" ry="2" fill="#ffdd00" data-date="2026-11-06" data-score="67" data-duration="314" data-nap=""><title>2026-11-06 | 67分 | 5h 14min</title></rect>
+  <rect class="cell-excellent" x="744" y="145" width="13" height="13" rx="2" ry="2" fill="#1ed760" data-date="2026-11-07" data-score="94" data-duration="505" data-nap=""><title>2026-11-07 | 94分 | 8h 25min</title></rect>
   <rect class="cell-empty" x="744" y="161" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-11-08" data-score="" data-duration="" data-nap=""><title>2026-11-08 | 无评分 | N/A</title></rect>
   <rect class="cell-empty" x="760" y="65" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-11-09" data-score="" data-duration="" data-nap=""><title>2026-11-09 | 无评分 | N/A</title></rect>
   <rect class="cell-empty" x="760" y="81" width="13" height="13" rx="2" ry="2" fill="#E8EAED" data-date="2026-11-10" data-score="" data-duration="" data-nap=""><title>2026-11-10 | 无评分 | N/A</title></rect>
